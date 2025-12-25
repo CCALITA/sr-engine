@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <memory>
@@ -112,13 +113,30 @@ class OutputValues {
 
 struct RequestContext {
   std::unordered_map<std::string, ValueSlot> env;
-  std::chrono::steady_clock::time_point deadline{};
+  std::chrono::steady_clock::time_point deadline{std::chrono::steady_clock::time_point::max()};
+  std::atomic<bool> cancelled{false};
 
   template <typename T>
   auto set_env(std::string key, T value) -> void {
     ValueSlot slot;
     slot.set<T>(std::move(value));
     env.emplace(std::move(key), std::move(slot));
+  }
+
+  auto cancel() -> void {
+    cancelled.store(true, std::memory_order_release);
+  }
+
+  auto is_cancelled() const -> bool {
+    return cancelled.load(std::memory_order_acquire);
+  }
+
+  auto deadline_exceeded() const -> bool {
+    return std::chrono::steady_clock::now() > deadline;
+  }
+
+  auto should_stop() const -> bool {
+    return is_cancelled() || deadline_exceeded();
   }
 };
 

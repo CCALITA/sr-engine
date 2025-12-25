@@ -1,4 +1,5 @@
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -468,6 +469,80 @@ auto test_dataflow_parallel_runs() -> bool {
   return failures.load() == 0;
 }
 
+auto test_dataflow_cancelled_request() -> bool {
+  const char* dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "cancelled",
+    "nodes": [
+      { "id": "sum", "kernel": "add" }
+    ],
+    "bindings": [
+      { "to": "sum.a", "from": 1 },
+      { "to": "sum.b", "from": 2 }
+    ],
+    "outputs": [
+      { "from": "sum.sum", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  sr::engine::GraphDef graph;
+  std::string error;
+  if (!parse_graph(dsl, graph, error)) {
+    return false;
+  }
+
+  auto registry = make_registry();
+  auto plan = sr::engine::compile_plan(graph, registry);
+  if (!plan) {
+    return false;
+  }
+
+  sr::engine::Executor executor(2);
+  sr::engine::RequestContext ctx;
+  ctx.cancel();
+  auto result = executor.run_dataflow(*plan, ctx);
+  return !result;
+}
+
+auto test_dataflow_deadline_exceeded() -> bool {
+  const char* dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "deadline",
+    "nodes": [
+      { "id": "sum", "kernel": "add" }
+    ],
+    "bindings": [
+      { "to": "sum.a", "from": 1 },
+      { "to": "sum.b", "from": 2 }
+    ],
+    "outputs": [
+      { "from": "sum.sum", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  sr::engine::GraphDef graph;
+  std::string error;
+  if (!parse_graph(dsl, graph, error)) {
+    return false;
+  }
+
+  auto registry = make_registry();
+  auto plan = sr::engine::compile_plan(graph, registry);
+  if (!plan) {
+    return false;
+  }
+
+  sr::engine::Executor executor(2);
+  sr::engine::RequestContext ctx;
+  ctx.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+  auto result = executor.run_dataflow(*plan, ctx);
+  return !result;
+}
+
 }  // namespace
 
 int main() {
@@ -484,6 +559,8 @@ int main() {
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
   run_test("dataflow_fanout_join", test_dataflow_fanout_join, stats);
   run_test("dataflow_parallel_runs", test_dataflow_parallel_runs, stats);
+  run_test("dataflow_cancelled_request", test_dataflow_cancelled_request, stats);
+  run_test("dataflow_deadline_exceeded", test_dataflow_deadline_exceeded, stats);
 
   std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed << "\n";
   return stats.failed == 0 ? 0 : 1;

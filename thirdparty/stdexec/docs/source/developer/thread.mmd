@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant T1 as Thread 1 (Initial)
+    participant T2 as Thread 2 (Target)
+    participant S as Upstream Sender
+    participant Tr as Transfer Sender
+    participant Sch as Scheduler
+    participant R as Downstream Receiver
+
+    Note over T1: 1. Build Pipeline
+    
+    Note over T1: 2. Connect Phase
+    T1->>Tr: connect(DownstreamReceiver)
+    Tr->>S: connect(TransferReceiver)
+    
+    Note over T1: 3. Start Phase
+    T1->>S: start()
+    S->>S: Compute Result...
+    S->>Tr: set_value(data) (on Thread 1)
+    
+    rect rgb(40, 40, 50)
+        Note right of Tr: Transfer Logic 介入
+        Tr->>Sch: schedule_task(data, DownstreamReceiver)
+        Note over Tr: Thread 1 任务结束，释放栈
+    end
+
+    Note over T2: ...稍后...
+    Sch->>T2: Dequeue Task
+    activate T2
+    T2->>R: set_value(data) (on Thread 2)
+    Note right of R: 下游逻辑在此线程执行
+    deactivate T2

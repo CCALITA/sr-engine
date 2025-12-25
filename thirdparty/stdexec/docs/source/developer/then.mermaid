@@ -1,0 +1,27 @@
+flowchart LR
+    subgraph Composition [Main Thread]
+        direction TB
+        S1[Source Sender] -->|Wrapped by| S2[Then Sender]
+        S2 -->|Wrapped by| S3[Root Sender]
+    end
+
+    subgraph Connection [Main Thread]
+        direction TB
+        R3[User Receiver] -->|Wrapped by| R2[Then Receiver]
+        R2 -->|Wrapped by| R1[Source Receiver]
+        
+        S3 -.->|connect| R3
+        S2 -.->|connect| R2
+        S1 -.->|connect| R1
+    end
+
+    subgraph Execution [Runtime]
+        direction LR
+        Start((start)) --> Op1[Source Operation]
+        Op1 --> |set_valuex| Op2[Then Receiver Logic]
+        Op2 --> |Apply fx| Op3[User Receiver Logic]
+        Op3 --> |set_valueresult| End((Finish))
+    end
+
+    Composition -.-> Connection
+    Connection -.-> Execution

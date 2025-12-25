@@ -1,0 +1,31 @@
+sequenceDiagram
+    participant App as Application
+    participant S as Sender (Factory)
+    participant R as Receiver (Callback)
+    participant OS as OperationState (Machine)
+    participant HW as Resource/Scheduler
+
+    Note over App, S: 1. 构造阶段 (Lazy)
+    App->>S: 定义任务链 (just | then | ...)
+    
+    Note over App, R: 2. 连接阶段 (Connect)
+    App->>S: connect(Sender, Receiver)
+    S->>S: 内部构建状态...
+    S-->>App: 返回 OperationState (OS)
+    
+    Note over App, OS: 3. 启动阶段 (Start)
+    App->>OS: start()
+    
+    rect rgb(30, 30, 30)
+        Note right of OS: 此时任务才真正开始
+        OS->>HW: 提交任务/计算
+        HW-->>OS: 任务完成
+        
+        alt 成功 (Success)
+            OS->>R: set_value(result)
+        else 失败 (Failure)
+            OS->>R: set_error(exception)
+        else 取消 (Stopped)
+            OS->>R: set_stopped()
+        end
+    end

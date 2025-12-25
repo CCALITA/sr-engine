@@ -1,0 +1,31 @@
+classDiagram
+    direction TB
+    
+    class Sender {
+        <<Concept>>
+        +connect(Receiver) OperationState
+    }
+
+    class Receiver {
+        <<Concept>>
+        +set_value(args...)
+        +set_error(e)
+        +set_stopped()
+    }
+
+    class OperationState {
+        <<Concept>>
+        +start()
+    }
+
+    class Scheduler {
+        <<Concept>>
+        +schedule() Sender
+    }
+
+    Sender ..> OperationState : Creates (via connect)
+    OperationState --> Receiver : Notifies (via set_*)
+    Scheduler ..> Sender : Creates (via schedule)
+    
+    note for Sender "惰性蓝图 (Lazy Blueprint)\n不包含运行时状态"
+    note for OperationState "运行时实体 (Runtime Object)\n包含所有Promise/Future状态"

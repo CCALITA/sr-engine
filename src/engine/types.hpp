@@ -71,6 +71,7 @@ struct ValueSlot {
 
 class InputValues {
  public:
+  InputValues() : slots_() {}
   explicit InputValues(std::span<const ValueSlot* const> slots) : slots_(slots) {}
 
   auto size() const -> std::size_t { return slots_.size(); }
@@ -92,6 +93,7 @@ class InputValues {
 
 class OutputValues {
  public:
+  OutputValues() : slots_() {}
   explicit OutputValues(std::span<ValueSlot*> slots) : slots_(slots) {}
 
   auto size() const -> std::size_t { return slots_.size(); }

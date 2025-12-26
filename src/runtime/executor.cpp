@@ -70,15 +70,6 @@ struct NodeRuntime {
   std::vector<ValueSlot> missing_slots;
   InputValues input_view;
   OutputValues output_view;
-
-  NodeRuntime(std::vector<const ValueSlot*> inputs_in,
-              std::vector<ValueSlot*> outputs_in,
-              std::vector<ValueSlot> missing_in)
-      : inputs(std::move(inputs_in)),
-        outputs(std::move(outputs_in)),
-        missing_slots(std::move(missing_in)),
-        input_view(std::span<const ValueSlot* const>(inputs.data(), inputs.size())),
-        output_view(std::span<ValueSlot*>(outputs.data(), outputs.size())) {}
 };
 
 }  // namespace
@@ -180,8 +171,7 @@ auto Executor::run_dataflow(const ExecPlan& plan, RequestContext& ctx, int threa
     return tl::unexpected(make_error("graph has no nodes"));
   }
 
-  std::vector<NodeRuntime> runtime_nodes;
-  runtime_nodes.reserve(node_count);
+  std::vector<NodeRuntime> runtime_nodes(node_count);
   for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
     const auto& node = plan.nodes[node_index];
     std::vector<const ValueSlot*> inputs;
@@ -225,45 +215,22 @@ auto Executor::run_dataflow(const ExecPlan& plan, RequestContext& ctx, int threa
       outputs.push_back(&slots[static_cast<std::size_t>(slot_index)]);
     }
 
-    runtime_nodes.emplace_back(std::move(inputs), std::move(outputs), std::move(missing_slots));
+    auto& runtime = runtime_nodes[node_index];
+    runtime.inputs = std::move(inputs);
+    runtime.outputs = std::move(outputs);
+    runtime.missing_slots = std::move(missing_slots);
+    runtime.input_view = InputValues(
+      std::span<const ValueSlot* const>(runtime.inputs.data(), runtime.inputs.size()));
+    runtime.output_view = OutputValues(std::span<ValueSlot*>(runtime.outputs.data(), runtime.outputs.size()));
   }
 
-  std::vector<int> slot_producer(plan.slots.size(), -1);
-  for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
-    const auto& node = plan.nodes[node_index];
-    for (int slot_index : node.outputs) {
-      slot_producer[static_cast<std::size_t>(slot_index)] = static_cast<int>(node_index);
-    }
-  }
-
-  std::vector<std::vector<int>> dependents(node_count);
   std::vector<std::atomic<int>> pending(node_count);
-  std::vector<int> seen(node_count, -1);
-  int stamp = 0;
-
   for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
-    stamp += 1;
-    int count = 0;
-    const auto& node = plan.nodes[node_index];
-    for (const auto& binding : node.inputs) {
-      if (binding.kind != InputBindingKind::Slot) {
-        continue;
-      }
-      int producer = slot_producer[static_cast<std::size_t>(binding.slot_index)];
-      if (producer < 0) {
-        return tl::unexpected(make_error("missing slot producer"));
-      }
-      if (producer == static_cast<int>(node_index)) {
-        continue;
-      }
-      if (seen[static_cast<std::size_t>(producer)] == stamp) {
-        continue;
-      }
-      seen[static_cast<std::size_t>(producer)] = stamp;
-      dependents[static_cast<std::size_t>(producer)].push_back(static_cast<int>(node_index));
-      count += 1;
-    }
-    pending[node_index].store(count, std::memory_order_relaxed);
+    pending[node_index].store(plan.pending_counts[node_index], std::memory_order_relaxed);
+  }
+  std::vector<std::atomic<bool>> scheduled(node_count);
+  for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
+    scheduled[node_index].store(false, std::memory_order_relaxed);
   }
 
   exec::static_thread_pool* pool_ptr = nullptr;
@@ -309,7 +276,7 @@ auto Executor::run_dataflow(const ExecPlan& plan, RequestContext& ctx, int threa
 
   std::function<void(int)> schedule_node;
   auto complete_node = [&](int node_index) {
-    for (int dependent : dependents[static_cast<std::size_t>(node_index)]) {
+    for (int dependent : plan.dependents[static_cast<std::size_t>(node_index)]) {
       if (pending[static_cast<std::size_t>(dependent)].fetch_sub(1, std::memory_order_acq_rel) == 1) {
         schedule_node(dependent);
       }
@@ -318,6 +285,9 @@ auto Executor::run_dataflow(const ExecPlan& plan, RequestContext& ctx, int threa
   };
 
   schedule_node = [&](int node_index) {
+    if (scheduled[static_cast<std::size_t>(node_index)].exchange(true, std::memory_order_acq_rel)) {
+      return;
+    }
     auto body = stdexec::schedule(scheduler)
       | stdexec::let_value([&, node_index]() -> ErasedSender {
           if (aborted.load(std::memory_order_acquire)) {

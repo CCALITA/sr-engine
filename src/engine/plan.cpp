@@ -257,6 +257,43 @@ auto compile_plan(const GraphDef& graph, const KernelRegistry& registry, const C
     plan.nodes.push_back(std::move(node));
   }
 
+  plan.slot_producer.assign(plan.slots.size(), -1);
+  for (std::size_t node_index = 0; node_index < plan.nodes.size(); ++node_index) {
+    const auto& node = plan.nodes[node_index];
+    for (int slot_index : node.outputs) {
+      plan.slot_producer[static_cast<std::size_t>(slot_index)] = static_cast<int>(node_index);
+    }
+  }
+
+  plan.dependents.assign(plan.nodes.size(), {});
+  plan.pending_counts.assign(plan.nodes.size(), 0);
+  std::vector<int> seen(plan.nodes.size(), -1);
+  int stamp = 0;
+  for (std::size_t node_index = 0; node_index < plan.nodes.size(); ++node_index) {
+    stamp += 1;
+    int count = 0;
+    const auto& node = plan.nodes[node_index];
+    for (const auto& binding : node.inputs) {
+      if (binding.kind != InputBindingKind::Slot) {
+        continue;
+      }
+      int producer = plan.slot_producer[static_cast<std::size_t>(binding.slot_index)];
+      if (producer < 0) {
+        return tl::unexpected(make_error("missing slot producer"));
+      }
+      if (producer == static_cast<int>(node_index)) {
+        continue;
+      }
+      if (seen[static_cast<std::size_t>(producer)] == stamp) {
+        continue;
+      }
+      seen[static_cast<std::size_t>(producer)] = stamp;
+      plan.dependents[static_cast<std::size_t>(producer)].push_back(static_cast<int>(node_index));
+      count += 1;
+    }
+    plan.pending_counts[node_index] = count;
+  }
+
   for (const auto& output : graph.outputs) {
     auto node_it = node_index.find(output.from_node);
     if (node_it == node_index.end()) {

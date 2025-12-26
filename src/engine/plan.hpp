@@ -42,6 +42,9 @@ struct ExecPlan {
   std::vector<int> topo_order;
   std::vector<SlotSpec> slots;
   std::vector<ValueSlot> const_slots;
+  std::vector<int> slot_producer;
+  std::vector<std::vector<int>> dependents;
+  std::vector<int> pending_counts;
   std::unordered_map<std::string, int> output_slots;
 };
 

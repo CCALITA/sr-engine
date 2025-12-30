@@ -18,9 +18,9 @@ int main() {
     "version": 1,
     "name": "demo",
     "nodes": [
-      { "id": "sum", "kernel": "add" },
-      { "id": "scale", "kernel": "mul", "params": { "factor": 10 } },
-      { "id": "fmt", "kernel": "format", "params": { "prefix": "result=" } }
+      { "id": "sum", "kernel": "add", "inputs": ["a", "b"], "outputs": ["sum"] },
+      { "id": "scale", "kernel": "mul", "params": { "factor": 10 }, "inputs": ["value"], "outputs": ["product"] },
+      { "id": "fmt", "kernel": "format", "params": { "prefix": "result=" }, "inputs": ["value"], "outputs": ["text"] }
     ],
     "bindings": [
       { "to": "sum.a", "from": "$req.x" },

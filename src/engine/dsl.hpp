@@ -26,6 +26,8 @@ struct NodeDef {
   std::string id;
   std::string kernel;
   Json params;
+  std::vector<std::string> input_names;
+  std::vector<std::string> output_names;
 };
 
 struct BindingDef {

@@ -1,75 +1,55 @@
 #pragma once
 
 #include <functional>
-#include <exception>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
-#include <exec/any_sender_of.hpp>
-#include <stdexec/execution.hpp>
-
-#include "engine/error.hpp"
-#include "engine/types.hpp"
-
-namespace sr::engine::dag {
-
-struct get_signature_t {
-  template <class K>
-  auto operator()(const K& kernel) const noexcept -> decltype(tag_invoke(*this, kernel)) {
-    return tag_invoke(*this, kernel);
-  }
-};
-
-struct execute_t {
-  template <class K>
-  auto operator()(K& kernel, RequestContext& ctx, const InputValues& inputs, OutputValues& outputs) const
-    -> decltype(tag_invoke(*this, kernel, ctx, inputs, outputs)) {
-    return tag_invoke(*this, kernel, ctx, inputs, outputs);
-  }
-};
-
-inline constexpr get_signature_t get_signature{};
-inline constexpr execute_t execute{};
-
-}  // namespace sr::engine::dag
+#include "engine/kernel_adapt.hpp"
+#include "engine/kernel_types.hpp"
 
 namespace sr::engine {
-
-using ErasedSender = exec::any_receiver_ref<stdexec::completion_signatures<
-  stdexec::set_value_t(),
-  stdexec::set_error_t(std::exception_ptr),
-  stdexec::set_stopped_t()>>::any_sender<>;
-
-struct KernelHandle {
-  Signature signature;
-  std::shared_ptr<void> instance;
-  ErasedSender (*exec)(void*, RequestContext&, const InputValues&, OutputValues&);
-};
-
-template <typename K>
-auto exec_adapter(void* ptr, RequestContext& ctx, const InputValues& inputs, OutputValues& outputs) -> ErasedSender {
-  auto& kernel = *static_cast<K*>(ptr);
-  auto sender = dag::execute(kernel, ctx, inputs, outputs);
-  return ErasedSender{std::move(sender)};
-}
-
-template <typename K>
-auto make_kernel_handle(K kernel) -> KernelHandle {
-  KernelHandle handle;
-  handle.signature = dag::get_signature(kernel);
-  handle.instance = std::make_shared<K>(std::move(kernel));
-  handle.exec = &exec_adapter<K>;
-  return handle;
-}
 
 class KernelRegistry {
  public:
   using FactoryFn = std::function<Expected<KernelHandle>(const Json& params)>;
 
-  auto register_kernel(std::string name, FactoryFn factory) -> void;
+  auto register_factory(std::string name, FactoryFn factory) -> void;
+  template <detail::KernelFn Fn>
+  auto register_kernel(std::string name, Fn fn, TaskType task_type = TaskType::Compute) -> void {
+    auto inputs = std::vector<std::string>{};
+    auto outputs = std::vector<std::string>{};
+    auto handle = detail::make_kernel_handle_from_fn(std::move(fn), inputs, outputs, task_type);
+    register_factory(std::move(name),
+                     [handle = std::move(handle)](const Json&) mutable -> Expected<KernelHandle> {
+                       return handle;
+                     });
+  }
+
+  template <detail::KernelFactory Factory>
+  auto register_kernel_with_params(std::string name, Factory factory,
+                                   TaskType task_type = TaskType::Compute) -> void {
+    auto inputs = std::vector<std::string>{};
+    auto outputs = std::vector<std::string>{};
+    register_factory(
+      std::move(name),
+      [factory = std::move(factory), inputs = std::move(inputs), outputs = std::move(outputs),
+       task_type](const Json& params) mutable -> Expected<KernelHandle> {
+        using FactoryResult = decltype(factory(params));
+        if constexpr (detail::is_expected_v<FactoryResult>) {
+          auto fn_result = factory(params);
+          if (!fn_result) {
+            return tl::unexpected(fn_result.error());
+          }
+          return detail::make_kernel_handle_from_fn(std::move(*fn_result), inputs, outputs, task_type);
+        } else {
+          auto fn = factory(params);
+          return detail::make_kernel_handle_from_fn(std::move(fn), inputs, outputs, task_type);
+        }
+      });
+  }
   auto find(std::string_view name) const -> const FactoryFn*;
 
  private:

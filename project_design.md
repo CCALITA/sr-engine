@@ -3,7 +3,7 @@ Dynamic DAG Engine（工业级在线低延迟计算服务）架构设计（Markd
 核心技术栈：C++20 / ENTT / stdexec Sender-Receiver(P2300) / nlohmann/json
 核心定位：在线推荐 / 检索 / 风控 / 策略等系统的通用“计算编排 + 低延迟执行”框架
 编排方式：port-bind 风格 JSON DSL → resolve → 可执行计划（ExecPlan）
-执行方式：以 stdexec sender/receiver + CPO 为核心抽象，优化工程结构、可组合性与可测试性
+执行方式：以 stdexec 调度 + completion-driven 运行时为核心抽象，kernel 通过 callable 适配接入
 
 目录
 
@@ -17,7 +17,7 @@ Dynamic DAG Engine（工业级在线低延迟计算服务）架构设计（Markd
 
 5. Resolve/Compile：从 DSL 到 ExecPlan
 
-6. Kernel 插件模型：ENTT meta + CPO + Sender
+6. Kernel 插件模型：ENTT meta + Callable + Registry
 
 7. 执行模型：stdexec 组合、调度、取消与超时
 
@@ -68,7 +68,7 @@ Exec 阶段完成：基于 stdexec 的组合执行、并发调度、取消/超�
 
 Kernel 插件可独立编译/注册/灰度
 
-DAG 引擎与业务 kernel 解耦：通过 CPO + Sender 实现可组合的 API
+DAG 引擎与业务 kernel 解耦：通过 KernelRegistry + callable 签名反射实现可组合的 API
 
 可测试：每个 kernel、每个子图、完整图均可离线跑
 
@@ -85,7 +85,7 @@ flowchart LR
   B --> C[Resolver/Validator]
   C --> D[Compiler -> ExecPlan]
   D --> E[Runtime Executor]
-  E --> F[stdexec senders 组合执行]
+  E --> F[stdexec 调度执行]
   E --> G[Observability: tracing/metrics/log]
   E --> H[Resource: pools/cache/threads]
   I[Kernel Library] --> C
@@ -101,14 +101,13 @@ node/edge/port/type 等都作为 component 存放
 
 resolve 阶段在 registry 上做规则校验与编译
 
-stdexec sender/receiver：作为 runtime 的“执行描述”
+stdexec sender/receiver：作为 runtime 的调度/任务编排基础
 
-kernel 返回 sender（可异步，可并行）
+每个节点在选定 scheduler 上 schedule -> then 执行 callable
 
-引擎把 DAG 编译成 sender 的组合（when_all / let_value / then / upon_error 等）
+完成后以 completion-driven 方式触发下游（依赖计数归零即调度）
 
-CPO（Customization Point Object）：让 kernel 能“以最小侵入方式”接入引擎
-典型 CPO：get_signature(k), execute(k, ctx, inputs...), estimate_cost(k) 等
+Kernel 通过 callable 适配：输入参数与返回值推导 Signature，端口名由 DSL 指定
 
 3. 核心概念与数据模型
 3.1 概念表
@@ -144,9 +143,9 @@ PlanStorageComponent { contiguous arrays for runtime }
   "version": 1,
   "name": "recall_rank_pipeline",
   "nodes": [
-    { "id": "recall", "kernel": "ann_recall", "params": { "topk": 300 } },
-    { "id": "feat",   "kernel": "feature_fetch", "params": { "timeout_ms": 8 } },
-    { "id": "rank",   "kernel": "ltr_rank", "params": { "model": "rank_v7" } }
+    { "id": "recall", "kernel": "ann_recall", "params": { "topk": 300 }, "inputs": ["query", "uid"], "outputs": ["items"] },
+    { "id": "feat",   "kernel": "feature_fetch", "params": { "timeout_ms": 8 }, "inputs": ["items"], "outputs": ["items"] },
+    { "id": "rank",   "kernel": "ltr_rank", "params": { "model": "rank_v7" }, "inputs": ["items", "user"], "outputs": ["scored_items"] }
   ],
   "bindings": [
     { "to": "recall.query", "from": "$req.query" },
@@ -175,7 +174,7 @@ PlanStorageComponent { contiguous arrays for runtime }
 
 推荐把条件做成显式 kernel（更可观测），例如：
 
-{ "id": "gate", "kernel": "if_else" }
+{ "id": "gate", "kernel": "if_else", "inputs": ["cond", "then", "else"], "outputs": ["value"] }
 
 
 bindings：
@@ -226,76 +225,41 @@ Any：允许 type-erasure（但会引入运行期开销，建议仅边界/调试
 
 经验：在线系统建议默认 Exact，对少数端口允许 Convertible，Any 只给“边缘适配层”。
 
-6. Kernel 插件模型：ENTT meta + CPO + Sender
+6. Kernel 插件模型：ENTT meta + Callable + Registry
 6.1 Kernel 需要提供什么
 
 引擎希望以统一方式获得：
 
-端口签名（inputs/outputs + 类型 + required/multi）
+端口签名（inputs/outputs + 类型 + required/multi）：由 callable 参数/返回值推导
 
-执行入口：给定 RequestContext 与输入值，返回 sender
+执行入口：直接调用 callable，可选 RequestContext 作为首参
 
-静态属性：name、资源估计、是否可并行、是否可 cache、超时建议等
+运行属性：TaskType（Compute/Io）与可选参数工厂
 
-6.2 用 CPO 设计“最小侵入”接口
+6.2 用 Callable + Registry 设计“最小侵入”接口
 
 示意（概念代码）：
 
-namespace dag {
+sr::engine::KernelRegistry registry;
+registry.register_kernel("add", [](int64_t a, int64_t b) { return a + b; });
+registry.register_kernel_with_params("mul", [](const Json& params) {
+  auto factor = params.at("factor").get<int64_t>();
+  return [factor](int64_t v) { return v * factor; };
+});
+registry.register_kernel(
+  "format",
+  [](const std::string& prefix, int64_t value) -> std::string {
+    return std::format("{}{}", prefix, value);
+  },
+  TaskType::Io);
 
-// --- CPO: signature ---
-struct get_signature_t {
-  template<class K>
-  auto operator()(const K& k) const noexcept
-    -> decltype(tag_invoke(*this, k)) {
-    return tag_invoke(*this, k);
-  }
-};
-inline constexpr get_signature_t get_signature{};
+输入/输出端口名由 DSL 的 inputs/outputs 提供；引擎在 compile 时校验端口数量和类型。
 
-// --- CPO: execute ---
-struct execute_t {
-  template<class K, class Ctx, class... In>
-  auto operator()(K& k, Ctx& ctx, In&&... in) const
-    -> decltype(tag_invoke(*this, k, ctx, (In&&)in...)) {
-    return tag_invoke(*this, k, ctx, (In&&)in...);
-  }
-};
-inline constexpr execute_t execute{};
+6.3 ENTT meta 注册（类型注册）
 
-} // namespace dag
+引擎通过 register_type<T>("name") 注册可用数据类型
 
-
-Kernel 侧只需实现 tag_invoke：
-
-struct AnnRecall {
-  int topk;
-
-  friend auto tag_invoke(dag::get_signature_t, const AnnRecall&) {
-    return /* inputs: query, uid; outputs: items */ ;
-  }
-
-  friend auto tag_invoke(dag::execute_t, AnnRecall& self, RequestContext& ctx,
-                         std::string query, int64_t uid) {
-    // 返回 sender：可 async，可调度到线程池/IO executor
-    return stdexec::just(/* items */);
-  }
-};
-
-6.3 ENTT meta 注册（kernel 工厂 + 参数解码）
-
-引擎通过 kernel_name 找到 meta 信息
-
-用 json params 构造 kernel 实例
-
-compile 时把“构造 + 执行入口”固化成函数指针/小 vtable
-
-示意：
-
-entt::meta<AnnRecall>()
-  .type("ann_recall"_hs)
-  .ctor<int>() // topk
-  .data<&AnnRecall::topk>("topk"_hs);
+compile 阶段用 meta_type 做类型校验与运行期存储
 
 7. 执行模型：stdexec 组合、调度、取消与超时
 7.1 ExecPlan 的 runtime 形态（关键）
@@ -308,29 +272,19 @@ kernel instance（或轻量 handle）
 
 输入 slot index 列表、输出 slot index 列表
 
-执行函数指针：sender (*run)(ctx, slots...)
+执行函数指针：Expected<void> (*compute)(void*, RequestContext&, InputValues, OutputValues)
 
 slot 存储：arena 分配的 ValueSlot[]（按类型对齐/或 type-erasure）
 
-拓扑顺序：topo[] 或分层 levels[]（用于并行批处理）
+拓扑顺序：topo[] 或 dependents/pending_counts（用于 completion-driven 调度）
 
-7.2 DAG → Sender 组合策略
+7.2 DAG 调度策略（completion-driven）
 
-两种主流策略（可并存）：
+每个节点维护 pending 计数，计数归零时立刻调度
 
-A. 分层并行（level scheduling）
+节点完成后递减 dependents 的 pending，触发新的可运行节点
 
-同一层节点无依赖 → when_all 并行跑
-
-层与层之间 let_value 串起来
-
-B. 节点级组合（fine-grained）
-
-每个节点的 sender 依赖其输入 sender
-
-更贴近“数据流”，但编译复杂度更高
-
-工业落地通常先做 A（稳定、易观测），再对热点子图引入 B 优化尾延迟。
+调度时按 TaskType 选择计算池或 IO 池，使用 schedule + then + start_detached
 
 7.3 取消与超时（必须一等公民）
 
@@ -340,11 +294,9 @@ RequestContext 含 deadline、stop_source/stop_token
 
 引擎在最外层提供：
 
-with_deadline(sender, deadline)
+每个节点执行前检查 RequestContext 的取消/超时状态
 
-with_cancellation(sender, stop_token)
-
-upon_error 做统一错误映射
+发生取消/超时时停止调度并返回错误
 
 8. 并发与性能：低延迟关键路径
 8.1 关键路径原则（强建议）
@@ -460,8 +412,8 @@ struct CompiledNode {
   std::span<const int> in_slots;
   std::span<const int> out_slots;
 
-  // 运行入口：返回 sender（类型擦除后的 sender_any / 或自定义 erased_sender）
-  erased_sender (*run)(void* kernel_instance, RequestContext&, ValueSlot* slots);
+  // 运行入口：直接 compute 写入 OutputValues
+  Expected<void> (*compute)(void* kernel_instance, RequestContext&, const InputValues&, OutputValues&);
   void* kernel_instance;
 };
 
@@ -483,4 +435,3 @@ struct Signature {
   std::vector<PortDesc> inputs;
   std::vector<PortDesc> outputs;
 };
-

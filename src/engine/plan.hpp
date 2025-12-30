@@ -22,7 +22,7 @@ struct InputBinding {
   InputBindingKind kind = InputBindingKind::Slot;
   int slot_index = -1;
   int const_index = -1;
-  std::string env_key;
+  int env_index = -1;
   entt::meta_type expected_type{};
 };
 
@@ -37,22 +37,22 @@ struct SlotSpec {
   entt::meta_type type{};
 };
 
+struct EnvRequirement {
+  std::string key;
+  entt::meta_type type{};
+};
+
 struct ExecPlan {
   std::vector<CompiledNode> nodes;
   std::vector<int> topo_order;
   std::vector<SlotSpec> slots;
   std::vector<ValueSlot> const_slots;
+  std::vector<EnvRequirement> env_requirements;
   std::vector<int> slot_producer;
   std::vector<std::vector<int>> dependents;
   std::vector<int> pending_counts;
   std::unordered_map<std::string, int> output_slots;
 };
-
-struct CompileOptions {
-  std::unordered_map<std::string, entt::meta_type> env_types;
-};
-
-auto compile_plan(const GraphDef& graph, const KernelRegistry& registry, const CompileOptions& options = {})
-  -> Expected<ExecPlan>;
+auto compile_plan(const GraphDef& graph, const KernelRegistry& registry) -> Expected<ExecPlan>;
 
 }  // namespace sr::engine

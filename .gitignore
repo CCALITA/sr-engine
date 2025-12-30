@@ -1,5 +1,6 @@
 # CMake build artifacts
 /build/
+/build-asan/
 /cmake-build-*/
 /CMakeFiles/
 /CMakeCache.txt

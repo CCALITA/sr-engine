@@ -1,5 +1,6 @@
 #include "engine/dsl.hpp"
 
+#include <format>
 #include <string_view>
 #include <unordered_set>
 
@@ -10,7 +11,7 @@ auto parse_node_port(std::string_view value, std::string_view context)
   -> Expected<std::pair<std::string, std::string>> {
   auto dot = value.find('.');
   if (dot == std::string_view::npos || dot == 0 || dot + 1 >= value.size()) {
-    return tl::unexpected(make_error(std::string(context) + ": expected node.port"));
+    return tl::unexpected(make_error(std::format("{}: expected node.port", context)));
   }
   std::string node(value.substr(0, dot));
   std::string port(value.substr(dot + 1));
@@ -21,9 +22,29 @@ auto get_string_field(const Json& obj, std::string_view field, std::string_view 
   -> Expected<std::string> {
   auto it = obj.find(std::string(field));
   if (it == obj.end() || !it->is_string()) {
-    return tl::unexpected(make_error(std::string(context) + ": missing or invalid field '" + std::string(field) + "'"));
+    return tl::unexpected(make_error(std::format("{}: missing or invalid field '{}'", context, field)));
   }
   return it->get<std::string>();
+}
+
+auto get_string_array_field(const Json& obj, std::string_view field, std::string_view context)
+  -> Expected<std::vector<std::string>> {
+  auto it = obj.find(std::string(field));
+  if (it == obj.end()) {
+    return std::vector<std::string>{};
+  }
+  if (!it->is_array()) {
+    return tl::unexpected(make_error(std::format("{}: field '{}' must be an array", context, field)));
+  }
+  std::vector<std::string> result;
+  result.reserve(it->size());
+  for (const auto& entry : *it) {
+    if (!entry.is_string()) {
+      return tl::unexpected(make_error(std::format("{}: field '{}' must contain strings", context, field)));
+    }
+    result.push_back(entry.get<std::string>());
+  }
+  return result;
 }
 
 }  // namespace
@@ -61,7 +82,7 @@ auto parse_graph_json(const Json& json) -> Expected<GraphDef> {
       return tl::unexpected(id.error());
     }
     if (!node_ids.insert(*id).second) {
-      return tl::unexpected(make_error("duplicate node id: " + *id));
+      return tl::unexpected(make_error(std::format("duplicate node id: {}", *id)));
     }
     auto kernel = get_string_field(node_json, "kernel", "node");
     if (!kernel) {
@@ -75,6 +96,16 @@ auto parse_graph_json(const Json& json) -> Expected<GraphDef> {
     } else {
       node.params = Json::object();
     }
+    auto inputs = get_string_array_field(node_json, "inputs", "node");
+    if (!inputs) {
+      return tl::unexpected(inputs.error());
+    }
+    node.input_names = std::move(*inputs);
+    auto outputs = get_string_array_field(node_json, "outputs", "node");
+    if (!outputs) {
+      return tl::unexpected(outputs.error());
+    }
+    node.output_names = std::move(*outputs);
     graph.nodes.push_back(std::move(node));
   }
 

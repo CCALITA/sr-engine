@@ -2,7 +2,7 @@
 
 namespace sr::engine {
 
-auto KernelRegistry::register_kernel(std::string name, FactoryFn factory) -> void {
+auto KernelRegistry::register_factory(std::string name, FactoryFn factory) -> void {
   factories_[std::move(name)] = std::move(factory);
 }
 

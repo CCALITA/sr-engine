@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "engine/dsl.hpp"
+#include "engine/graph_store.hpp"
 #include "engine/plan.hpp"
 #include "engine/trace.hpp"
 #include "engine/types.hpp"
@@ -24,7 +25,8 @@ struct TestStats {
   int failed = 0;
 };
 
-auto parse_graph(const char* dsl, sr::engine::GraphDef& out, std::string& error) -> bool {
+auto parse_graph(const char *dsl, sr::engine::GraphDef &out, std::string &error)
+    -> bool {
   try {
     auto json = sr::engine::Json::parse(dsl);
     auto graph = sr::engine::parse_graph_json(json);
@@ -34,7 +36,7 @@ auto parse_graph(const char* dsl, sr::engine::GraphDef& out, std::string& error)
     }
     out = std::move(*graph);
     return true;
-  } catch (const std::exception& ex) {
+  } catch (const std::exception &ex) {
     error = ex.what();
     return false;
   }
@@ -46,7 +48,8 @@ auto make_registry() -> sr::engine::KernelRegistry {
   return registry;
 }
 
-auto run_test(const char* name, const std::function<bool()>& test, TestStats& stats) -> void {
+auto run_test(const char *name, const std::function<bool()> &test,
+              TestStats &stats) -> void {
   if (test()) {
     std::cout << "[PASS] " << name << "\n";
     stats.passed += 1;
@@ -57,7 +60,7 @@ auto run_test(const char* name, const std::function<bool()>& test, TestStats& st
 }
 
 auto test_basic_pipeline() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "basic",
@@ -108,7 +111,7 @@ auto test_basic_pipeline() -> bool {
     return false;
   }
 
-  const auto& text = it->second.get<std::string>();
+  const auto &text = it->second.get<std::string>();
   if (text != "sum=120") {
     std::cerr << "unexpected output: " << text << "\n";
     return false;
@@ -117,7 +120,7 @@ auto test_basic_pipeline() -> bool {
 }
 
 auto test_optional_input_coalesce() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "coalesce",
@@ -156,12 +159,12 @@ auto test_optional_input_coalesce() -> bool {
     return false;
   }
 
-  const auto& value = result->outputs.at("out").get<int64_t>();
+  const auto &value = result->outputs.at("out").get<int64_t>();
   return value == 42;
 }
 
 auto test_env_binding() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "env",
@@ -201,12 +204,99 @@ auto test_env_binding() -> bool {
     return false;
   }
 
-  const auto& value = result->outputs.at("out").get<int64_t>();
+  const auto &value = result->outputs.at("out").get<int64_t>();
   return value == 13;
 }
 
+auto test_graph_store_versioning() -> bool {
+  const char *dsl_v1 = R"JSON(
+  {
+    "version": 1,
+    "name": "versioned_graph",
+    "nodes": [
+      { "id": "a", "kernel": "const_i64", "params": { "value": 2 }, "inputs": [], "outputs": ["value"] }
+    ],
+    "outputs": [
+      { "from": "a.value", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  const char *dsl_v2 = R"JSON(
+  {
+    "version": 2,
+    "name": "versioned_graph",
+    "nodes": [
+      { "id": "a", "kernel": "const_i64", "params": { "value": 3 }, "inputs": [], "outputs": ["value"] }
+    ],
+    "outputs": [
+      { "from": "a.value", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  sr::engine::GraphDef graph_v1;
+  sr::engine::GraphDef graph_v2;
+  std::string error;
+  if (!parse_graph(dsl_v1, graph_v1, error)) {
+    std::cerr << "parse error v1: " << error << "\n";
+    return false;
+  }
+  if (!parse_graph(dsl_v2, graph_v2, error)) {
+    std::cerr << "parse error v2: " << error << "\n";
+    return false;
+  }
+
+  auto registry = make_registry();
+  sr::engine::GraphStore store;
+  auto snap_v1 = store.stage(graph_v1, registry,
+                             sr::engine::StageOptions{.publish = true});
+  if (!snap_v1) {
+    std::cerr << "stage v1 error: " << snap_v1.error().message << "\n";
+    return false;
+  }
+  auto snap_v2 = store.stage(graph_v2, registry);
+  if (!snap_v2) {
+    std::cerr << "stage v2 error: " << snap_v2.error().message << "\n";
+    return false;
+  }
+
+  if (!store.publish("versioned_graph", 2)) {
+    return false;
+  }
+
+  auto active = store.resolve("versioned_graph");
+  if (!active || active->key.version != 2) {
+    return false;
+  }
+
+  auto resolved_v1 = store.resolve("versioned_graph", 1);
+  if (!resolved_v1 || resolved_v1->key.version != 1) {
+    return false;
+  }
+
+  sr::engine::GraphStoreConfig config;
+  config.allow_rollback = false;
+  sr::engine::GraphStore no_rollback_store(config);
+  auto snap_v1b = no_rollback_store.stage(
+      graph_v1, registry, sr::engine::StageOptions{.publish = true});
+  if (!snap_v1b) {
+    return false;
+  }
+  auto snap_v2b = no_rollback_store.stage(
+      graph_v2, registry, sr::engine::StageOptions{.publish = true});
+  if (!snap_v2b) {
+    return false;
+  }
+  if (no_rollback_store.publish("versioned_graph", 1)) {
+    return false;
+  }
+
+  return true;
+}
+
 auto test_missing_required_input() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "missing_input",
@@ -235,7 +325,7 @@ auto test_missing_required_input() -> bool {
 }
 
 auto test_type_mismatch() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "type_mismatch",
@@ -265,7 +355,7 @@ auto test_type_mismatch() -> bool {
 }
 
 auto test_cycle_detection() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "cycle",
@@ -295,7 +385,7 @@ auto test_cycle_detection() -> bool {
 }
 
 auto test_duplicate_output_name() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "dup_output",
@@ -321,7 +411,7 @@ auto test_duplicate_output_name() -> bool {
 }
 
 auto test_env_type_mismatch() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "env_type_mismatch",
@@ -358,7 +448,7 @@ auto test_env_type_mismatch() -> bool {
 }
 
 auto test_dynamic_port_names() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "dynamic_ports",
@@ -383,7 +473,8 @@ auto test_dynamic_port_names() -> bool {
   }
 
   sr::engine::KernelRegistry registry;
-  registry.register_kernel("sum_dyn", [](int64_t x, int64_t y) { return x + y; });
+  registry.register_kernel("sum_dyn",
+                           [](int64_t x, int64_t y) { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
   if (!plan) {
     std::cerr << "compile error: " << plan.error().message << "\n";
@@ -398,12 +489,12 @@ auto test_dynamic_port_names() -> bool {
     return false;
   }
 
-  const auto& value = result->outputs.at("out").get<int64_t>();
+  const auto &value = result->outputs.at("out").get<int64_t>();
   return value == 9;
 }
 
 auto test_dynamic_ports_missing_names() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "dynamic_ports_missing",
@@ -428,13 +519,14 @@ auto test_dynamic_ports_missing_names() -> bool {
   }
 
   sr::engine::KernelRegistry registry;
-  registry.register_kernel("sum_dyn", [](int64_t x, int64_t y) { return x + y; });
+  registry.register_kernel("sum_dyn",
+                           [](int64_t x, int64_t y) { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
   return !plan;
 }
 
 auto test_dataflow_fanout_join() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "dataflow_fanout_join",
@@ -480,12 +572,12 @@ auto test_dataflow_fanout_join() -> bool {
     return false;
   }
 
-  const auto& value = result->outputs.at("out").get<int64_t>();
+  const auto &value = result->outputs.at("out").get<int64_t>();
   return value == 21;
 }
 
 auto test_dataflow_parallel_runs() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "multi_thread",
@@ -524,7 +616,7 @@ auto test_dataflow_parallel_runs() -> bool {
   std::vector<std::thread> threads;
   threads.reserve(kThreads);
 
-  const sr::engine::ExecPlan& compiled = *plan;
+  const sr::engine::ExecPlan &compiled = *plan;
   sr::engine::ExecutorConfig config;
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
@@ -542,7 +634,7 @@ auto test_dataflow_parallel_runs() -> bool {
           failures.fetch_add(1);
           return;
         }
-        const auto& value = result->outputs.at("out").get<int64_t>();
+        const auto &value = result->outputs.at("out").get<int64_t>();
         const int64_t expected = (x + 3) * 2;
         if (value != expected) {
           failures.fetch_add(1);
@@ -552,7 +644,7 @@ auto test_dataflow_parallel_runs() -> bool {
     });
   }
 
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 
@@ -577,20 +669,22 @@ auto test_trace_parallel_runs() -> bool {
     std::mutex mutex;
     std::vector<TraceEvent> events;
 
-    void on_run_start(const sr::engine::trace::RunStart& event) {
+    void on_run_start(const sr::engine::trace::RunStart &event) {
       push(TraceEvent::Kind::RunStart, event.trace_id, event.span_id, -1);
     }
 
-    void on_run_end(const sr::engine::trace::RunEnd& event) {
+    void on_run_end(const sr::engine::trace::RunEnd &event) {
       push(TraceEvent::Kind::RunEnd, event.trace_id, event.span_id, -1);
     }
 
-    void on_node_start(const sr::engine::trace::NodeStart& event) {
-      push(TraceEvent::Kind::NodeStart, event.trace_id, event.span_id, event.node_index);
+    void on_node_start(const sr::engine::trace::NodeStart &event) {
+      push(TraceEvent::Kind::NodeStart, event.trace_id, event.span_id,
+           event.node_index);
     }
 
-    void on_node_end(const sr::engine::trace::NodeEnd& event) {
-      push(TraceEvent::Kind::NodeEnd, event.trace_id, event.span_id, event.node_index);
+    void on_node_end(const sr::engine::trace::NodeEnd &event) {
+      push(TraceEvent::Kind::NodeEnd, event.trace_id, event.span_id,
+           event.node_index);
     }
 
     auto snapshot() -> std::vector<TraceEvent> {
@@ -610,19 +704,19 @@ auto test_trace_parallel_runs() -> bool {
   struct SpanKey {
     sr::engine::trace::TraceId trace_id = 0;
     sr::engine::trace::SpanId span_id = 0;
-    auto operator==(const SpanKey& other) const -> bool {
+    auto operator==(const SpanKey &other) const -> bool {
       return trace_id == other.trace_id && span_id == other.span_id;
     }
   };
 
   struct SpanKeyHash {
-    auto operator()(const SpanKey& key) const -> std::size_t {
+    auto operator()(const SpanKey &key) const -> std::size_t {
       std::size_t seed = std::hash<sr::engine::trace::TraceId>{}(key.trace_id);
       return seed ^ (std::hash<sr::engine::trace::SpanId>{}(key.span_id) << 1);
     }
   };
 
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "trace_parallel",
@@ -667,7 +761,7 @@ auto test_trace_parallel_runs() -> bool {
   sr::engine::ExecutorConfig config;
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
-  const sr::engine::ExecPlan& compiled = *plan;
+  const sr::engine::ExecPlan &compiled = *plan;
 
   std::vector<std::thread> threads;
   threads.reserve(kThreads);
@@ -680,8 +774,9 @@ auto test_trace_parallel_runs() -> bool {
         sr::engine::RequestContext ctx;
         ctx.set_env<int64_t>("x", x);
         ctx.trace.sink = sink;
-        ctx.trace.flags = sr::engine::trace::to_flags(sr::engine::trace::TraceFlag::RunSpan) |
-                          sr::engine::trace::to_flags(sr::engine::trace::TraceFlag::NodeSpan);
+        ctx.trace.flags =
+            sr::engine::trace::to_flags(sr::engine::trace::TraceFlag::RunSpan) |
+            sr::engine::trace::to_flags(sr::engine::trace::TraceFlag::NodeSpan);
         ctx.trace.trace_id = next_trace_id.fetch_add(1);
         ctx.trace.next_span.store(1, std::memory_order_relaxed);
         auto result = executor.run(compiled, ctx);
@@ -689,7 +784,7 @@ auto test_trace_parallel_runs() -> bool {
           failures.fetch_add(1);
           return;
         }
-        const auto& value = result->outputs.at("out").get<int64_t>();
+        const auto &value = result->outputs.at("out").get<int64_t>();
         const int64_t expected = (x + 1) * 4;
         if (value != expected) {
           failures.fetch_add(1);
@@ -699,7 +794,7 @@ auto test_trace_parallel_runs() -> bool {
     });
   }
 
-  for (auto& thread : threads) {
+  for (auto &thread : threads) {
     thread.join();
   }
 
@@ -732,54 +827,55 @@ auto test_trace_parallel_runs() -> bool {
   std::unordered_map<sr::engine::trace::TraceId, RunInfo> runs;
   std::unordered_map<SpanKey, SpanInfo, SpanKeyHash> spans;
 
-  for (const auto& event : events) {
-    auto& run = runs[event.trace_id];
+  for (const auto &event : events) {
+    auto &run = runs[event.trace_id];
     switch (event.kind) {
-      case TraceEvent::Kind::RunStart: {
-        if (run.start) {
-          return false;
-        }
-        run.start = true;
-        run.start_index = event.index;
-        break;
+    case TraceEvent::Kind::RunStart: {
+      if (run.start) {
+        return false;
       }
-      case TraceEvent::Kind::RunEnd: {
-        if (run.end) {
-          return false;
-        }
-        run.end = true;
-        run.end_index = event.index;
-        break;
+      run.start = true;
+      run.start_index = event.index;
+      break;
+    }
+    case TraceEvent::Kind::RunEnd: {
+      if (run.end) {
+        return false;
       }
-      case TraceEvent::Kind::NodeStart: {
-        run.node_starts += 1;
-        if (event.node_index < 0 || static_cast<std::size_t>(event.node_index) >= node_count) {
-          return false;
-        }
-        SpanKey key{event.trace_id, event.span_id};
-        auto& span = spans[key];
-        if (span.start) {
-          return false;
-        }
-        span.start = true;
-        span.start_index = event.index;
-        span.node_index = event.node_index;
-        break;
+      run.end = true;
+      run.end_index = event.index;
+      break;
+    }
+    case TraceEvent::Kind::NodeStart: {
+      run.node_starts += 1;
+      if (event.node_index < 0 ||
+          static_cast<std::size_t>(event.node_index) >= node_count) {
+        return false;
       }
-      case TraceEvent::Kind::NodeEnd: {
-        run.node_ends += 1;
-        SpanKey key{event.trace_id, event.span_id};
-        auto& span = spans[key];
-        if (!span.start || span.end) {
-          return false;
-        }
-        if (span.node_index != event.node_index) {
-          return false;
-        }
-        span.end = true;
-        span.end_index = event.index;
-        break;
+      SpanKey key{event.trace_id, event.span_id};
+      auto &span = spans[key];
+      if (span.start) {
+        return false;
       }
+      span.start = true;
+      span.start_index = event.index;
+      span.node_index = event.node_index;
+      break;
+    }
+    case TraceEvent::Kind::NodeEnd: {
+      run.node_ends += 1;
+      SpanKey key{event.trace_id, event.span_id};
+      auto &span = spans[key];
+      if (!span.start || span.end) {
+        return false;
+      }
+      if (span.node_index != event.node_index) {
+        return false;
+      }
+      span.end = true;
+      span.end_index = event.index;
+      break;
+    }
     }
   }
 
@@ -788,7 +884,7 @@ auto test_trace_parallel_runs() -> bool {
     return false;
   }
 
-  for (const auto& [trace_id, run] : runs) {
+  for (const auto &[trace_id, run] : runs) {
     if (!run.start || !run.end) {
       return false;
     }
@@ -801,7 +897,7 @@ auto test_trace_parallel_runs() -> bool {
     }
   }
 
-  for (const auto& [key, span] : spans) {
+  for (const auto &[key, span] : spans) {
     if (!span.start || !span.end) {
       return false;
     }
@@ -822,7 +918,7 @@ auto test_dataflow_mixed_schedulers() -> bool {
     bool io_set = false;
   };
 
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "mixed_schedulers",
@@ -921,7 +1017,7 @@ auto test_dataflow_mixed_schedulers() -> bool {
 }
 
 auto test_dataflow_cancelled_request() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "cancelled",
@@ -960,7 +1056,7 @@ auto test_dataflow_cancelled_request() -> bool {
 }
 
 auto test_dataflow_deadline_exceeded() -> bool {
-  const char* dsl = R"JSON(
+  const char *dsl = R"JSON(
   {
     "version": 1,
     "name": "deadline",
@@ -993,12 +1089,13 @@ auto test_dataflow_deadline_exceeded() -> bool {
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
-  ctx.deadline = std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
+  ctx.deadline =
+      std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
   auto result = executor.run(*plan, ctx);
   return !result;
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   sr::kernel::register_builtin_types();
@@ -1007,20 +1104,26 @@ int main() {
   run_test("basic_pipeline", test_basic_pipeline, stats);
   run_test("optional_input_coalesce", test_optional_input_coalesce, stats);
   run_test("env_binding", test_env_binding, stats);
+
+  run_test("graph_store_versioning", test_graph_store_versioning, stats);
   run_test("missing_required_input", test_missing_required_input, stats);
   run_test("type_mismatch", test_type_mismatch, stats);
   run_test("cycle_detection", test_cycle_detection, stats);
   run_test("duplicate_output_name", test_duplicate_output_name, stats);
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
   run_test("dynamic_port_names", test_dynamic_port_names, stats);
-  run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names, stats);
+  run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names,
+           stats);
   run_test("dataflow_fanout_join", test_dataflow_fanout_join, stats);
   run_test("dataflow_parallel_runs", test_dataflow_parallel_runs, stats);
   run_test("trace_parallel_runs", test_trace_parallel_runs, stats);
   run_test("dataflow_mixed_schedulers", test_dataflow_mixed_schedulers, stats);
-  run_test("dataflow_cancelled_request", test_dataflow_cancelled_request, stats);
-  run_test("dataflow_deadline_exceeded", test_dataflow_deadline_exceeded, stats);
+  run_test("dataflow_cancelled_request", test_dataflow_cancelled_request,
+           stats);
+  run_test("dataflow_deadline_exceeded", test_dataflow_deadline_exceeded,
+           stats);
 
-  std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed << "\n";
+  std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed
+            << "\n";
   return stats.failed == 0 ? 0 : 1;
 }

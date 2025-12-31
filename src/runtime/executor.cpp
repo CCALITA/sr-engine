@@ -1,6 +1,7 @@
 #include "runtime/executor.hpp"
 
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <deque>
 #include <exception>
@@ -38,11 +39,12 @@ auto collect_outputs(const ExecPlan& plan, const std::vector<ValueSlot>& slots) 
   return result;
 }
 
-auto prepare_env_values(const ExecPlan& plan, const RequestContext& ctx, std::vector<const ValueSlot*>& values)
+auto prepare_env_slots(const ExecPlan& plan, const RequestContext& ctx, std::vector<detail::EnvSlot>& slots)
   -> Expected<void> {
-  values.clear();
-  values.reserve(plan.env_requirements.size());
-  for (const auto& req : plan.env_requirements) {
+  slots.clear();
+  slots.resize(plan.env_requirements.size());
+  for (std::size_t i = 0; i < plan.env_requirements.size(); ++i) {
+    const auto& req = plan.env_requirements[i];
     auto it = ctx.env.find(req.key);
     if (it == ctx.env.end()) {
       return tl::unexpected(make_error(std::format("missing env value: {}", req.key)));
@@ -50,7 +52,9 @@ auto prepare_env_values(const ExecPlan& plan, const RequestContext& ctx, std::ve
     if (req.type && it->second.type != req.type) {
       return tl::unexpected(make_error(std::format("env type mismatch: {}", req.key)));
     }
-    values.push_back(&it->second);
+    slots[i].type = req.type;
+    auto slot = std::make_shared<ValueSlot>(it->second);
+    detail::store_env_slot(slots[i], std::move(slot));
   }
   return {};
 }
@@ -79,11 +83,13 @@ struct ExecutionState {
   RequestContext* ctx = nullptr;
   Dispatcher* dispatcher = nullptr;
   trace::TraceContext* trace = nullptr;
+  RequestContextView ctx_view;
 
   std::vector<ValueSlot> slots;
   std::vector<NodeBindings> runtime_nodes;
-  std::vector<const ValueSlot*> env_values;
-  std::vector<const ValueSlot*> input_ptrs;
+  std::vector<detail::EnvSlot> env_slots;
+  std::vector<detail::InputRef> input_refs;
+  std::vector<std::shared_ptr<const ValueSlot>> env_cache;
   std::vector<ValueSlot*> output_ptrs;
   std::vector<ValueSlot> missing_slots;
   std::vector<trace::Tick> enqueue_ticks;
@@ -224,9 +230,10 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
   if (auto state = check_request_state(ctx_ref); !state) {
     return tl::unexpected(state.error());
   }
-  if (auto env_result = prepare_env_values(plan_ref, ctx_ref, env_values); !env_result) {
+  if (auto env_result = prepare_env_slots(plan_ref, ctx_ref, env_slots); !env_result) {
     return tl::unexpected(env_result.error());
   }
+  ctx_view = RequestContextView(ctx_ref, std::span<detail::EnvSlot>(env_slots), plan_ref.env_index);
 
   reset_slots(plan_ref, slots);
 
@@ -265,6 +272,7 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
   std::size_t total_inputs = 0;
   std::size_t total_outputs = 0;
   std::size_t total_missing = 0;
+  std::size_t total_env_inputs = 0;
   for (const auto& node : plan_ref.nodes) {
     total_inputs += node.inputs.size();
     total_outputs += node.outputs.size();
@@ -272,21 +280,26 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
       if (binding.kind == InputBindingKind::Missing) {
         total_missing += 1;
       }
+      if (binding.kind == InputBindingKind::Env) {
+        total_env_inputs += 1;
+      }
     }
   }
 
   runtime_nodes.resize(node_count);
-  input_ptrs.clear();
+  input_refs.clear();
   output_ptrs.clear();
   missing_slots.clear();
-  input_ptrs.reserve(total_inputs);
+  input_refs.reserve(total_inputs);
   output_ptrs.reserve(total_outputs);
   missing_slots.reserve(total_missing);
+  env_cache.assign(total_env_inputs, {});
 
+  std::size_t env_cursor = 0;
   for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
     const auto& node = plan_ref.nodes[node_index];
     auto& runtime = runtime_nodes[node_index];
-    runtime.input_offset = input_ptrs.size();
+    runtime.input_offset = input_refs.size();
     runtime.input_count = node.inputs.size();
     runtime.output_offset = output_ptrs.size();
     runtime.output_count = node.outputs.size();
@@ -294,15 +307,26 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
     for (const auto& binding : node.inputs) {
       switch (binding.kind) {
         case InputBindingKind::Slot: {
-          input_ptrs.push_back(&slots[static_cast<std::size_t>(binding.slot_index)]);
+          detail::InputRef ref;
+          ref.slot = &slots[static_cast<std::size_t>(binding.slot_index)];
+          input_refs.push_back(ref);
           break;
         }
         case InputBindingKind::Const: {
-          input_ptrs.push_back(&plan_ref.const_slots[static_cast<std::size_t>(binding.const_index)]);
+          detail::InputRef ref;
+          ref.slot = &plan_ref.const_slots[static_cast<std::size_t>(binding.const_index)];
+          input_refs.push_back(ref);
           break;
         }
         case InputBindingKind::Env: {
-          input_ptrs.push_back(env_values[static_cast<std::size_t>(binding.env_index)]);
+          assert(env_cursor < env_cache.size());
+          std::size_t env_index = static_cast<std::size_t>(binding.env_index);
+          assert(env_index < env_slots.size());
+          detail::InputRef ref;
+          ref.env = &env_slots[env_index];
+          ref.cache = &env_cache[env_cursor];
+          env_cursor += 1;
+          input_refs.push_back(ref);
           break;
         }
         case InputBindingKind::Missing: {
@@ -310,7 +334,9 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
           slot.type = binding.expected_type;
           slot.storage.reset();
           missing_slots.push_back(std::move(slot));
-          input_ptrs.push_back(&missing_slots.back());
+          detail::InputRef ref;
+          ref.slot = &missing_slots.back();
+          input_refs.push_back(ref);
           break;
         }
       }
@@ -320,6 +346,7 @@ auto ExecutionState::prepare(const ExecPlan& plan_ref, RequestContext& ctx_ref, 
       output_ptrs.push_back(&slots[static_cast<std::size_t>(slot_index)]);
     }
   }
+  assert(env_cursor == env_cache.size());
 
   pending.resize(node_count);
   scheduled.resize(node_count);
@@ -363,7 +390,7 @@ auto ExecutionState::schedule_node(int node_index) -> void {
 }
 
 auto ExecutionState::execute_node(int node_index) -> void {
-  auto& ctx_ref = *ctx;
+  auto& ctx_ref = ctx_view;
   const auto& node = plan->nodes[static_cast<std::size_t>(node_index)];
   const auto& runtime = runtime_nodes[static_cast<std::size_t>(node_index)];
 
@@ -425,8 +452,8 @@ auto ExecutionState::execute_node(int node_index) -> void {
     return;
   }
 
-  auto input_view = InputValues(std::span<const ValueSlot* const>(
-    input_ptrs.data() + runtime.input_offset, runtime.input_count));
+  auto input_view = InputValues(std::span<const detail::InputRef>(
+    input_refs.data() + runtime.input_offset, runtime.input_count));
   auto output_view =
     OutputValues(std::span<ValueSlot*>(output_ptrs.data() + runtime.output_offset, runtime.output_count));
   try {

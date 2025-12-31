@@ -149,7 +149,10 @@ inline constexpr bool is_mutable_lref_v =
   std::is_lvalue_reference_v<T> && !std::is_const_v<std::remove_reference_t<T>>;
 
 template <typename T>
-inline constexpr bool is_request_context_v = std::is_same_v<std::remove_cvref_t<T>, RequestContext>;
+inline constexpr bool is_request_context_v = std::is_same_v<std::remove_cvref_t<T>, RequestContextView>;
+
+template <typename T>
+inline constexpr bool is_request_context_base_v = std::is_same_v<std::remove_cvref_t<T>, RequestContext>;
 
 template <typename Tuple>
 struct tuple_tail;
@@ -179,6 +182,7 @@ concept KernelCallable = requires {
 template <typename T>
 inline constexpr bool is_valid_input_arg_v =
   !is_request_context_v<std::remove_cvref_t<T>> &&
+  !is_request_context_base_v<std::remove_cvref_t<T>> &&
   !std::is_rvalue_reference_v<T> &&
   !is_mutable_lref_v<T>;
 
@@ -327,7 +331,8 @@ auto handle_return(OutputValues& outputs, R&& value) -> Expected<void> {
 }
 
 template <typename Fn>
-auto invoke_kernel(Fn& fn, RequestContext& ctx, const InputValues& inputs, OutputValues& outputs) -> Expected<void> {
+auto invoke_kernel(Fn& fn, RequestContextView& ctx, const InputValues& inputs, OutputValues& outputs)
+  -> Expected<void> {
   using traits = callable_traits<Fn>;
   using args_tuple = typename traits::args_tuple;
   constexpr bool has_ctx = first_is_context<args_tuple>::value;
@@ -462,7 +467,7 @@ auto build_signature(const std::vector<std::string>& input_names, const std::vec
 }
 
 template <typename Fn>
-auto compute_from_fn(void* ptr, RequestContext& ctx, const InputValues& inputs, OutputValues& outputs)
+auto compute_from_fn(void* ptr, RequestContextView& ctx, const InputValues& inputs, OutputValues& outputs)
   -> Expected<void> {
   auto& fn = *static_cast<Fn*>(ptr);
   return invoke_kernel(fn, ctx, inputs, outputs);

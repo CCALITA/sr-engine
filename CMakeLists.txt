@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(sr_engine
   src/engine/dsl.cpp
+  src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
   src/runtime/executor.cpp

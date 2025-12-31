@@ -357,6 +357,7 @@ struct PlanBuilder {
     plan.const_slots = std::move(const_slots);
     plan.topo_order = std::move(topo);
     plan.env_requirements = std::move(env_requirements);
+    plan.env_index = std::move(env_index);
 
     if (auto outputs_result = bind_outputs(plan); !outputs_result) {
       return tl::unexpected(outputs_result.error());

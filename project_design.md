@@ -413,6 +413,10 @@ ExecPlan 带 hash（node+params+bindings），便于缓存与回滚
 
 热更新：双缓冲（old plan 继续服务，new plan 编译成功再切）
 
+GraphStore：name → {version → PlanSnapshot}，active 用 atomic shared_ptr 读取
+
+发布策略：同版本 hash 冲突默认拒绝；允许回滚时可重新发布旧版本
+
 12. 附录：代码骨架与示例
 12.1 ExecPlan 结构（示意）
 struct ValueSlot {
@@ -426,7 +430,7 @@ struct CompiledNode {
   std::span<const int> out_slots;
 
   // 运行入口：直接 compute 写入 OutputValues
-  Expected<void> (*compute)(void* kernel_instance, RequestContext&, const InputValues&, OutputValues&);
+  Expected<void> (*compute)(void* kernel_instance, RequestContextView&, const InputValues&, OutputValues&);
   void* kernel_instance;
 };
 

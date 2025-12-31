@@ -49,6 +49,7 @@ struct ExecPlan {
   std::vector<SlotSpec> slots;
   std::vector<ValueSlot> const_slots;
   std::vector<EnvRequirement> env_requirements;
+  std::unordered_map<std::string, int> env_index;
   std::vector<int> slot_producer;
   std::vector<std::vector<int>> dependents;
   std::vector<int> pending_counts;

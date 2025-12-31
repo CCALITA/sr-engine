@@ -352,6 +352,7 @@ struct PlanBuilder {
 
   auto build_plan(std::vector<int> topo) -> Expected<ExecPlan> {
     ExecPlan plan;
+    plan.name = graph.name;
     plan.slots = std::move(slots);
     plan.const_slots = std::move(const_slots);
     plan.topo_order = std::move(topo);

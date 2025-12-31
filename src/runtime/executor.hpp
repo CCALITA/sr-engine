@@ -28,13 +28,15 @@ class Executor {
   auto operator=(const Executor&) -> Executor& = default;
   auto operator=(Executor&&) noexcept -> Executor& = default;
 
-  auto run(const ExecPlan& plan, RequestContext& ctx) const -> Expected<ExecResult>;
+ auto run(const ExecPlan& plan, RequestContext& ctx) const -> Expected<ExecResult>;
 
  private:
   struct Pools;
   struct BufferPool;
+  struct Dispatcher;
   std::shared_ptr<Pools> pools_;
   std::shared_ptr<BufferPool> buffers_;
+  std::shared_ptr<Dispatcher> dispatcher_;
 };
 
 }  // namespace sr::engine

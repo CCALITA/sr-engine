@@ -11,7 +11,7 @@
 - `build/`: generated build output (do not commit).
 
 ## Architecture Overview
-- The engine loads a JSON DSL, parses it into a `GraphDef`, resolves bindings/types, and compiles to an `ExecPlan`. The runtime executes the plan in topological order. Kernels are registered via `KernelRegistry`; signatures are inferred from callable argument/return types and port names come from the DSL.
+- The engine loads a JSON DSL, parses it into a `GraphDef`, resolves bindings/types, and compiles to an `ExecPlan`. The runtime executes the plan in topological order. Kernels are registered via `KernelRegistry`; signatures are inferred from callable argument/return types and port names come from the DSL. `RequestContext` carries a `TraceContext` that can emit per-run and per-node events.
 
 
 ## Build, Test, and Development Commands
@@ -26,10 +26,14 @@
 - Use 2-space indentation and same-line braces to match existing files.
 - be aggressive to refact and optimize existing API.
 - make detailed comments on every function and class.
-- Order includes as: standard library, third-party, then project headers.
 
 ## Testing Guidelines
 There is no test framework wired yet. Add tests under a new `tests/` directory using `*_test.cpp` naming, and register them in `CMakeLists.txt`. Focus on DSL parsing errors, compile-time validation, kernel execution, and output propagation.
+
+## Tracing
+- Tracing is optional and lives in `RequestContext::trace`. When enabled, the runtime emits `RunStart/RunEnd`, `NodeStart/NodeEnd`, `NodeError`, and `QueueDelay` events from worker threads.
+- Implement a sink with `on_run_start/on_node_start/...` and wrap it via `trace::make_sink` (see `src/engine/trace.hpp`). Sinks must be thread-safe; `string_view` fields are only valid during callbacks.
+- Define `SR_TRACE_DISABLED` to compile out tracing paths entirely.
 
 ## Commit & Pull Request Guidelines
 No git history is available in this repository. Use short, imperative commit subjects (e.g., “Add plan validation”). For PRs, include a concise description, the commands run, and any user-visible behavior changes (CLI output or API changes).

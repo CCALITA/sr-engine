@@ -118,7 +118,7 @@ Binding（Edge）	端口连接关系	src.out -> dst.in
 Env Binding	从请求上下文/环境取值	"$req.uid" 等
 Const Binding	常量注入	JSON literal
 ExecPlan	可执行计划	请求期零解析、少分配
-RequestContext	单请求上下文	trace/span、deadline、缓存、arena
+RequestContext	单请求上下文	TraceContext、deadline、缓存、arena
 3.2 ENTT registry 组件建议（resolve/compile 用）
 
 NodeComponent { std::string kernel_name; json params; }
@@ -340,7 +340,20 @@ slot 采用 “typed slot + index” 而不是 std::any
 9. 观测性与工程化能力
 9.1 Trace / Span
 
-每个 node 一个 span：记录开始/结束、错误码、输入输出大小（可采样）
+TraceContext 位于 RequestContext（每请求），默认禁用、零开销；启用时由 TraceSampler 一次性决定 TraceFlags。
+
+TraceSinkRef 采用函数指针擦除（无虚表/无分配），sink 可选择实现 on_run_start/on_node_start/on_node_end/on_node_error/on_queue_delay。
+
+事件模型（POD，string_view 仅在回调期间有效）：
+RunStart/RunEnd、NodeStart/NodeEnd、NodeError、QueueDelay。
+
+字段包含 trace_id、span_id、node_id、node_index、task_type、ticks（TraceClock 输出）。
+
+集成点：Executor::run 发 RunStart/RunEnd；schedule_node 记录 enqueue_tick；execute_node 发 NodeStart/NodeEnd/NodeError。
+
+线程安全：事件在 worker 线程发出，TraceSink 必须自行保证并发安全。
+
+编译期开关：定义 SR_TRACE_DISABLED 可完全剔除 tracing 代码路径。
 
 支持把“binding 解析结果”打印成可读拓扑，便于定位配置错误
 

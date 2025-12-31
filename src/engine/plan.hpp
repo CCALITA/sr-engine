@@ -43,6 +43,7 @@ struct EnvRequirement {
 };
 
 struct ExecPlan {
+  std::string name;
   std::vector<CompiledNode> nodes;
   std::vector<int> topo_order;
   std::vector<SlotSpec> slots;

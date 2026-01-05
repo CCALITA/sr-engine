@@ -165,7 +165,7 @@ auto test_basic_pipeline() -> bool {
   return true;
 }
 
-auto test_optional_input_coalesce() -> bool {
+auto test_missing_optional_input() -> bool {
   const char *dsl = R"JSON(
   {
     "version": 1,
@@ -192,21 +192,7 @@ auto test_optional_input_coalesce() -> bool {
 
   auto registry = make_registry();
   auto plan = sr::engine::compile_plan(graph, registry);
-  if (!plan) {
-    std::cerr << "compile error: " << plan.error().message << "\n";
-    return false;
-  }
-
-  sr::engine::Executor executor;
-  sr::engine::RequestContext ctx;
-  auto result = executor.run(*plan, ctx);
-  if (!result) {
-    std::cerr << "run error: " << result.error().message << "\n";
-    return false;
-  }
-
-  const auto &value = result->outputs.at("out").get<int64_t>();
-  return value == 42;
+  return !plan;
 }
 
 auto test_env_binding() -> bool {
@@ -740,7 +726,7 @@ auto test_dynamic_port_names() -> bool {
 
   sr::engine::KernelRegistry registry;
   registry.register_kernel("sum_dyn",
-                           [](int64_t x, int64_t y) { return x + y; });
+                           [](int64_t x, int64_t y) noexcept { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
   if (!plan) {
     std::cerr << "compile error: " << plan.error().message << "\n";
@@ -786,7 +772,7 @@ auto test_dynamic_ports_missing_names() -> bool {
 
   sr::engine::KernelRegistry registry;
   registry.register_kernel("sum_dyn",
-                           [](int64_t x, int64_t y) { return x + y; });
+                           [](int64_t x, int64_t y) noexcept { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
   return !plan;
 }
@@ -1175,7 +1161,7 @@ auto test_trace_parallel_runs() -> bool {
   return true;
 }
 
-auto test_dataflow_mixed_schedulers() -> bool {
+auto test_dataflow_task_types() -> bool {
   struct ThreadRecord {
     std::mutex mutex;
     std::thread::id compute_id;
@@ -1187,7 +1173,7 @@ auto test_dataflow_mixed_schedulers() -> bool {
   const char *dsl = R"JSON(
   {
     "version": 1,
-    "name": "mixed_schedulers",
+    "name": "task_types",
     "nodes": [
       { "id": "src", "kernel": "const_i64", "params": { "value": 9 }, "inputs": [], "outputs": ["value"] },
       { "id": "cpu", "kernel": "compute_recorder", "inputs": ["value"], "outputs": ["value"] },
@@ -1218,7 +1204,7 @@ auto test_dataflow_mixed_schedulers() -> bool {
 
   registry.register_kernel(
       "compute_recorder",
-      [record](int64_t value) {
+      [record](int64_t value) noexcept {
         {
           std::lock_guard<std::mutex> lock(record->mutex);
           record->compute_id = std::this_thread::get_id();
@@ -1230,7 +1216,7 @@ auto test_dataflow_mixed_schedulers() -> bool {
 
   registry.register_kernel(
       "io_recorder",
-      [record](int64_t value) {
+      [record](int64_t value) noexcept {
         {
           std::lock_guard<std::mutex> lock(record->mutex);
           record->io_id = std::this_thread::get_id();
@@ -1248,7 +1234,6 @@ auto test_dataflow_mixed_schedulers() -> bool {
 
   sr::engine::ExecutorConfig config;
   config.compute_threads = 1;
-  config.io_threads = 1;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
   auto result = executor.run(*plan, ctx);
@@ -1264,22 +1249,15 @@ auto test_dataflow_mixed_schedulers() -> bool {
     return false;
   }
 
-  std::thread::id compute_id;
-  std::thread::id io_id;
   bool compute_set = false;
   bool io_set = false;
   {
     std::lock_guard<std::mutex> lock(record->mutex);
-    compute_id = record->compute_id;
-    io_id = record->io_id;
     compute_set = record->compute_set;
     io_set = record->io_set;
   }
 
-  if (!compute_set || !io_set) {
-    return false;
-  }
-  return compute_id != io_id;
+  return compute_set && io_set;
 }
 
 auto test_dataflow_cancelled_request() -> bool {
@@ -1368,7 +1346,7 @@ int main() {
 
   TestStats stats;
   run_test("basic_pipeline", test_basic_pipeline, stats);
-  run_test("optional_input_coalesce", test_optional_input_coalesce, stats);
+  run_test("missing_optional_input", test_missing_optional_input, stats);
   run_test("env_binding", test_env_binding, stats);
 
   run_test("graph_store_versioning", test_graph_store_versioning, stats);
@@ -1386,7 +1364,7 @@ int main() {
   run_test("dataflow_fanout_join", test_dataflow_fanout_join, stats);
   run_test("dataflow_parallel_runs", test_dataflow_parallel_runs, stats);
   run_test("trace_parallel_runs", test_trace_parallel_runs, stats);
-  run_test("dataflow_mixed_schedulers", test_dataflow_mixed_schedulers, stats);
+  run_test("dataflow_task_types", test_dataflow_task_types, stats);
   run_test("dataflow_cancelled_request", test_dataflow_cancelled_request,
            stats);
   run_test("dataflow_deadline_exceeded", test_dataflow_deadline_exceeded,

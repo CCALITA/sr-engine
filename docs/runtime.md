@@ -49,6 +49,9 @@ Notes:
 - Deleting a file stops tracking it but does not evict existing snapshots.
 - Keep the poll interval conservative for small directories (30–60s is typical).
 - Register kernels early; if compilation fails, the daemon retries each interval.
+- Kernel callables must be `noexcept`; use `Expected` for recoverable errors.
+- `RequestContext.env` is snapshotted per run; kernels cannot mutate env during execution.
+- All node inputs must be bound in the DSL; missing inputs are compile errors.
 
 ## Thread Safety Contract
 - `GraphStore` is safe to call from multiple threads.

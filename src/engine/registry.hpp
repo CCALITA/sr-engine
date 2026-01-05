@@ -29,7 +29,7 @@ class KernelRegistry {
 
   /// Register a raw factory for a kernel name.
   auto register_factory(std::string name, FactoryFn factory) -> void;
-  /// Register a stateless kernel callable (inputs/outputs come from the DSL).
+  /// Register a stateless kernel callable (must be noexcept; inputs/outputs come from the DSL).
   template <detail::KernelFn Fn>
   auto register_kernel(std::string name, Fn fn, TaskType task_type = TaskType::Compute) -> void {
     auto inputs = std::vector<std::string>{};
@@ -41,7 +41,7 @@ class KernelRegistry {
                      });
   }
 
-  /// Register a kernel factory that builds a callable from JSON params.
+  /// Register a kernel factory that builds a callable from JSON params (callable must be noexcept).
   template <detail::KernelFactory Factory>
   auto register_kernel_with_params(std::string name, Factory factory,
                                    TaskType task_type = TaskType::Compute) -> void {

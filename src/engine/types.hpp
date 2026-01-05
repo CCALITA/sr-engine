@@ -25,6 +25,14 @@ namespace sr::engine {
 using Json = nlohmann::json;
 namespace ex = stdexec;
 
+/// Hashed identifier for names (ports, outputs).
+using NameId = entt::id_type;
+
+/// Hash a runtime name into an entt id.
+inline constexpr auto hash_name(std::string_view name) -> NameId {
+  return entt::hashed_string::value(name.data(), name.size());
+}
+
 /// Port cardinality constraint for compiled signatures.
 enum class Cardinality {
   Single,
@@ -33,7 +41,7 @@ enum class Cardinality {
 
 /// Describes a single input/output port type.
 struct PortDesc {
-  std::string name;
+  NameId name_id{};
   entt::meta_type type;
   bool required = true;
   Cardinality cardinality = Cardinality::Single;
@@ -45,8 +53,8 @@ struct Signature {
   std::vector<PortDesc> outputs;
 };
 
-/// Type-erased slot holding a registered value instance.
-struct ValueSlot {
+/// Type-erased box holding a registered value instance.
+struct ValueBox {
   entt::meta_type type{};
   std::shared_ptr<void> storage{};
 
@@ -62,40 +70,18 @@ struct ValueSlot {
   template <typename T> auto get() -> T & {
     auto meta = entt::resolve<T>();
     assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueSlot type mismatch");
+    assert(type == meta && "ValueBox type mismatch");
     return *static_cast<T *>(storage.get());
   }
 
   template <typename T> auto get() const -> const T & {
     auto meta = entt::resolve<T>();
     assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueSlot type mismatch");
+    assert(type == meta && "ValueBox type mismatch");
     return *static_cast<const T *>(storage.get());
   }
 };
 
-namespace detail {
-
-struct EnvSlot {
-  entt::meta_type type{};
-  std::shared_ptr<const ValueSlot> value;
-};
-
-inline auto load_env_slot(const EnvSlot &slot) -> std::shared_ptr<const ValueSlot> {
-  return std::atomic_load_explicit(&slot.value, std::memory_order_acquire);
-}
-
-inline auto store_env_slot(EnvSlot &slot, std::shared_ptr<const ValueSlot> value) -> void {
-  std::atomic_store_explicit(&slot.value, std::move(value), std::memory_order_release);
-}
-
-struct InputRef {
-  const ValueSlot *slot = nullptr;
-  const EnvSlot *env = nullptr;
-  std::shared_ptr<const ValueSlot> *cache = nullptr;
-};
-
-} // namespace detail
 class InputValues;
 
 /// Writable view over a kernel's output slots.
@@ -104,11 +90,11 @@ class OutputValues {
 
 public:
   OutputValues() : slots_() {}
-  explicit OutputValues(std::span<ValueSlot *> slots) : slots_(slots) {}
+  explicit OutputValues(std::span<ValueBox *> slots) : slots_(slots) {}
 
   auto size() const -> std::size_t { return slots_.size(); }
 
-  auto slot(std::size_t index) -> ValueSlot & {
+  auto slot(std::size_t index) -> ValueBox & {
     assert(index < slots_.size());
     return *slots_[index];
   }
@@ -119,47 +105,34 @@ public:
   }
 
 private:
-  std::span<ValueSlot *> slots_;
+  std::span<ValueBox *> slots_;
 };
 
 /// Read-only view over a kernel's input slots.
 class InputValues {
 public:
   InputValues() : refs_() {}
-  explicit InputValues(std::span<const detail::InputRef> refs) : refs_(refs) {}
+  explicit InputValues(std::span<const ValueBox *const> refs) : refs_(refs) {}
 
   auto size() const -> std::size_t { return refs_.size(); }
 
-  auto slot(std::size_t index) const -> const ValueSlot & {
-    return resolve(index);
-  }
-
-  template <typename T> auto get(std::size_t index) const -> const T & {
-    return resolve(index).get<T>();
-  }
-
-private:
-  auto resolve(std::size_t index) const -> const ValueSlot & {
+  auto slot(std::size_t index) const -> const ValueBox & {
     assert(index < refs_.size());
-    const auto &ref = refs_[index];
-    if (ref.slot) {
-      return *ref.slot;
-    }
-    if (ref.env) {
-      assert(ref.cache && "env input requires cache slot");
-      if (!*ref.cache) {
-        auto loaded = detail::load_env_slot(*ref.env);
-        assert(loaded && "env slot missing value");
-        *ref.cache = std::move(loaded);
-      }
-      return **ref.cache;
+    const auto *slot = refs_[index];
+    if (slot) {
+      return *slot;
     }
     assert(false && "invalid input reference");
-    static ValueSlot empty;
+    static ValueBox empty;
     return empty;
   }
 
-  std::span<const detail::InputRef> refs_;
+  template <typename T> auto get(std::size_t index) const -> const T & {
+    return slot(index).get<T>();
+  }
+
+private:
+  std::span<const ValueBox *const> refs_;
 };
 
 // using rt_sender = stdexec::any_sender_of<ex::set_value_t(),
@@ -168,14 +141,14 @@ private:
 
 /// Per-request mutable state (env values, cancellation, tracing).
 struct RequestContext {
-  std::unordered_map<std::string, ValueSlot> env;
+  std::unordered_map<std::string, ValueBox> env;
   std::chrono::steady_clock::time_point deadline{
       std::chrono::steady_clock::time_point::max()};
   std::atomic<bool> cancelled{false};
   trace::TraceContext trace;
 
   template <typename T> auto set_env(std::string key, T value) -> void {
-    ValueSlot slot;
+    ValueBox slot;
     slot.set<T>(std::move(value));
     env.emplace(std::move(key), std::move(slot));
   }
@@ -199,37 +172,7 @@ struct RequestContext {
 class RequestContextView {
 public:
   RequestContextView() = default;
-  RequestContextView(RequestContext &base, std::span<detail::EnvSlot> env_slots,
-                     const std::unordered_map<std::string, int> &env_index)
-      : base_(&base), env_slots_(env_slots), env_index_(&env_index) {}
-
-  template <typename T>
-  auto set_env(std::string_view key, T value) -> Expected<void> {
-    if (!env_index_) {
-      return tl::unexpected(make_error("env index not available"));
-    }
-    auto it = env_index_->find(std::string(key));
-    if (it == env_index_->end()) {
-      return tl::unexpected(make_error(std::format("env key not declared: {}", key)));
-    }
-    int index = it->second;
-    if (index < 0 || static_cast<std::size_t>(index) >= env_slots_.size()) {
-      return tl::unexpected(make_error(std::format("env index out of range: {}", key)));
-    }
-    auto meta = entt::resolve<std::remove_cvref_t<T>>();
-    if (!meta) {
-      return tl::unexpected(make_error(std::format("env type not registered: {}", key)));
-    }
-    auto expected = env_slots_[static_cast<std::size_t>(index)].type;
-    if (expected && expected != meta) {
-      return tl::unexpected(make_error(std::format("env type mismatch: {}", key)));
-    }
-    auto slot = std::make_shared<ValueSlot>();
-    slot->type = meta;
-    slot->storage = std::make_shared<std::remove_cvref_t<T>>(std::move(value));
-    detail::store_env_slot(env_slots_[static_cast<std::size_t>(index)], std::move(slot));
-    return {};
-  }
+  explicit RequestContextView(RequestContext &base) : base_(&base) {}
 
   auto cancel() -> void { base_->cancel(); }
 
@@ -245,8 +188,6 @@ public:
 
 private:
   RequestContext *base_ = nullptr;
-  std::span<detail::EnvSlot> env_slots_{};
-  const std::unordered_map<std::string, int> *env_index_ = nullptr;
 };
 
 /// Register a C++ type for use in signatures and value slots.

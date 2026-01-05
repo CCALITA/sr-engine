@@ -58,94 +58,94 @@ auto register_builtin_types() -> void {
 }
 
 auto register_sample_kernels(KernelRegistry &registry) -> void {
-  registry.register_kernel("add", [](int64_t a, int64_t b) { return a + b; });
+  registry.register_kernel("add", [](int64_t a, int64_t b) noexcept { return a + b; });
 
-  registry.register_kernel("sub_i64", [](int64_t a, int64_t b) { return a - b; });
+  registry.register_kernel("sub_i64", [](int64_t a, int64_t b) noexcept { return a - b; });
 
-  registry.register_kernel("negate_i64", [](int64_t value) { return -value; });
+  registry.register_kernel("negate_i64", [](int64_t value) noexcept { return -value; });
 
   registry.register_kernel(
       "div_i64",
-      [](int64_t numerator, int64_t denominator) {
+      [](int64_t numerator, int64_t denominator) noexcept {
         return denominator == 0 ? int64_t{0} : (numerator / denominator);
       });
 
-  registry.register_kernel("gt_i64", [](int64_t a, int64_t b) { return a > b; });
+  registry.register_kernel("gt_i64", [](int64_t a, int64_t b) noexcept { return a > b; });
 
-  registry.register_kernel("eq_i64", [](int64_t a, int64_t b) { return a == b; });
+  registry.register_kernel("eq_i64", [](int64_t a, int64_t b) noexcept { return a == b; });
 
-  registry.register_kernel("not_bool", [](bool value) { return !value; });
+  registry.register_kernel("not_bool", [](bool value) noexcept { return !value; });
 
-  registry.register_kernel("and_bool", [](bool a, bool b) { return a && b; });
+  registry.register_kernel("and_bool", [](bool a, bool b) noexcept { return a && b; });
 
-  registry.register_kernel("or_bool", [](bool a, bool b) { return a || b; });
+  registry.register_kernel("or_bool", [](bool a, bool b) noexcept { return a || b; });
 
-  registry.register_kernel("identity_i64", [](int64_t value) { return value; });
+  registry.register_kernel("identity_i64", [](int64_t value) noexcept { return value; });
 
-  registry.register_kernel("identity_str", [](const std::string& text) { return text; });
+  registry.register_kernel("identity_str", [](const std::string& text) noexcept { return text; });
 
   registry.register_kernel(
       "len_str",
-      [](const std::string& text) { return static_cast<int64_t>(text.size()); });
+      [](const std::string& text) noexcept { return static_cast<int64_t>(text.size()); });
 
-  registry.register_kernel("to_string", [](int64_t value) { return std::to_string(value); });
+  registry.register_kernel("to_string", [](int64_t value) noexcept { return std::to_string(value); });
 
-  registry.register_kernel("fanout_i64", [](int64_t value) {
+  registry.register_kernel("fanout_i64", [](int64_t value) noexcept {
     return std::make_tuple(value, value);
   });
 
-  registry.register_kernel("sink_i64", [](int64_t) {}, TaskType::Io);
+  registry.register_kernel("sink_i64", [](int64_t) noexcept {}, TaskType::Io);
 
-  registry.register_kernel("sink_str", [](const std::string&) {}, TaskType::Io);
+  registry.register_kernel("sink_str", [](const std::string&) noexcept {}, TaskType::Io);
 
-  registry.register_kernel("if_else_i64", [](bool cond, int64_t then_value, int64_t else_value) {
+  registry.register_kernel("if_else_i64",
+                           [](bool cond, int64_t then_value, int64_t else_value) noexcept {
     return cond ? then_value : else_value;
   });
 
   registry.register_kernel(
       "if_else_str",
       [](bool cond, const std::string& then_value,
-         const std::string& else_value) { return cond ? then_value : else_value; });
+         const std::string& else_value) noexcept { return cond ? then_value : else_value; });
 
   registry.register_kernel(
-      "coalesce_i64", [](std::optional<int64_t> value, int64_t fallback) {
+      "coalesce_i64", [](std::optional<int64_t> value, int64_t fallback) noexcept {
         return value ? *value : fallback;
       });
 
   registry.register_kernel(
-      "coalesce_str",
-      [](std::optional<std::string> text, const std::string& fallback) {
+      "coalesce_str", [](std::optional<std::string> text, const std::string& fallback) noexcept {
         return text ? *text : fallback;
       });
 
   registry.register_kernel_with_params(
       "mul", [](const sr::engine::Json& params) {
         const auto factor = get_int_param(params, "factor", 1);
-        return [factor](int64_t value) { return value * factor; };
+        return [factor](int64_t value) noexcept { return value * factor; };
       });
 
   registry.register_kernel_with_params(
       "const_i64", [](const sr::engine::Json& params) {
         const auto value = get_int_param(params, "value", 0);
-        return [value]() { return value; };
+        return [value]() noexcept { return value; };
       });
 
   registry.register_kernel_with_params(
       "const_bool", [](const sr::engine::Json& params) {
         const auto value = get_bool_param(params, "value", false);
-        return [value]() { return value; };
+        return [value]() noexcept { return value; };
       });
 
   registry.register_kernel_with_params(
       "const_str", [](const sr::engine::Json& params) {
         const auto value = get_string_param(params, "value", "");
-        return [value]() { return value; };
+        return [value]() noexcept { return value; };
       });
 
   registry.register_kernel_with_params(
       "concat_str", [](const sr::engine::Json& params) {
         const auto sep = get_string_param(params, "sep", "");
-        return [sep](const std::string& a, const std::string& b) {
+        return [sep](const std::string& a, const std::string& b) noexcept {
           return a + sep + b;
         };
       });
@@ -153,7 +153,7 @@ auto register_sample_kernels(KernelRegistry &registry) -> void {
   registry.register_kernel_with_params(
       "format", [](const sr::engine::Json& params) {
         const auto prefix = get_string_param(params, "prefix", "");
-        return [prefix](int64_t value) {
+        return [prefix](int64_t value) noexcept {
           return prefix + std::to_string(value);
         };
       });

@@ -105,7 +105,7 @@ class Runtime::GraphDaemon {
     }
 
     std::unordered_set<std::string> seen;
-    auto handle_entry = [&](const std::filesystem::directory_entry& entry) {
+    auto handle_entry = [this, &seen](const std::filesystem::directory_entry& entry) {
       std::error_code entry_error;
       if (!entry.is_regular_file(entry_error)) {
         return;

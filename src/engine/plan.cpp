@@ -15,17 +15,18 @@ struct NodeBuild {
   Signature signature;
   std::vector<InputBinding> inputs;
   std::vector<bool> input_bound;
-  std::unordered_map<std::string, int> input_port_map;
+  std::unordered_map<NameId, int> input_port_map;
+  std::vector<std::string_view> input_name_views;
   std::vector<int> outputs;
-  std::unordered_map<std::string, int> output_port_map;
+  std::unordered_map<NameId, int> output_port_map;
 };
 
-auto make_const_slot(const Json& value, entt::meta_type expected) -> Expected<ValueSlot> {
+auto make_const_slot(const Json& value, entt::meta_type expected) -> Expected<ValueBox> {
   if (!expected) {
     return tl::unexpected(make_error("const binding expects a registered type"));
   }
 
-  ValueSlot slot;
+  ValueBox slot;
   auto int_type = entt::resolve<int64_t>();
   auto double_type = entt::resolve<double>();
   auto bool_type = entt::resolve<bool>();
@@ -73,17 +74,21 @@ auto apply_port_names(std::vector<PortDesc>& ports, const std::vector<std::strin
       return tl::unexpected(make_error(std::format("{} name count mismatch for node: {}", label, node_id)));
     }
     for (std::size_t i = 0; i < ports.size(); ++i) {
-      ports[i].name = names[i];
+      if (names[i].empty()) {
+        ports[i].name_id = NameId{};
+      } else {
+        ports[i].name_id = hash_name(names[i]);
+      }
     }
   }
 
-  std::unordered_set<std::string> seen;
+  std::unordered_set<NameId> seen;
   seen.reserve(ports.size());
   for (const auto& port : ports) {
-    if (port.name.empty()) {
+    if (port.name_id == NameId{}) {
       return tl::unexpected(make_error(std::format("missing {} names for node: {}", label, node_id)));
     }
-    if (!seen.insert(port.name).second) {
+    if (!seen.insert(port.name_id).second) {
       return tl::unexpected(make_error(std::format("duplicate {} name for node: {}", label, node_id)));
     }
   }
@@ -99,7 +104,7 @@ struct PlanBuilder {
   std::vector<SlotSpec> slots;
   std::vector<std::vector<int>> edges;
   std::vector<int> indegree;
-  std::vector<ValueSlot> const_slots;
+  std::vector<ValueBox> const_slots;
   std::unordered_map<std::string, int> env_index;
   std::vector<EnvRequirement> env_requirements;
 
@@ -131,6 +136,12 @@ struct PlanBuilder {
           !name_result) {
         return tl::unexpected(name_result.error());
       }
+      build.input_name_views.assign(build.signature.inputs.size(), {});
+      if (!node_def.input_names.empty()) {
+        for (std::size_t i = 0; i < node_def.input_names.size(); ++i) {
+          build.input_name_views[i] = node_def.input_names[i];
+        }
+      }
       if (auto name_result =
             apply_port_names(build.signature.outputs, node_def.output_names, build.id, "output");
           !name_result) {
@@ -145,8 +156,7 @@ struct PlanBuilder {
         if (!in_port.type) {
           return tl::unexpected(make_error(std::format("input port type missing for node: {}", build.id)));
         }
-        build.inputs[i].expected_type = in_port.type;
-        build.input_port_map.emplace(in_port.name, static_cast<int>(i));
+        build.input_port_map.emplace(in_port.name_id, static_cast<int>(i));
       }
 
       for (const auto& out_port : build.signature.outputs) {
@@ -156,7 +166,7 @@ struct PlanBuilder {
         int slot_index = static_cast<int>(slots.size());
         slots.push_back(SlotSpec{out_port.type});
         build.outputs.push_back(slot_index);
-        build.output_port_map.emplace(out_port.name, slot_index);
+        build.output_port_map.emplace(out_port.name_id, slot_index);
       }
 
       node_index.emplace(node_def.id, static_cast<int>(node_builds.size()));
@@ -175,7 +185,8 @@ struct PlanBuilder {
         return tl::unexpected(make_error(std::format("binding to unknown node: {}", binding.to_node)));
       }
       auto& node = node_builds[to_it->second];
-      auto input_it = node.input_port_map.find(binding.to_port);
+      auto input_key = hash_name(binding.to_port);
+      auto input_it = node.input_port_map.find(input_key);
       if (input_it == node.input_port_map.end()) {
         return tl::unexpected(
           make_error(std::format("binding to unknown input port: {}.{}", binding.to_node, binding.to_port)));
@@ -188,8 +199,6 @@ struct PlanBuilder {
 
       const auto& input_port = node.signature.inputs[static_cast<std::size_t>(input_index)];
       InputBinding input_binding;
-      input_binding.expected_type = input_port.type;
-
       switch (binding.source.kind) {
         case BindingKind::NodePort: {
           auto from_it = node_index.find(binding.source.node);
@@ -197,7 +206,8 @@ struct PlanBuilder {
             return tl::unexpected(make_error(std::format("binding from unknown node: {}", binding.source.node)));
           }
           auto& from_node = node_builds[from_it->second];
-          auto out_it = from_node.output_port_map.find(binding.source.port);
+          auto output_key = hash_name(binding.source.port);
+          auto out_it = from_node.output_port_map.find(output_key);
           if (out_it == from_node.output_port_map.end()) {
             return tl::unexpected(make_error(
               std::format("binding from unknown output port: {}.{}", binding.source.node, binding.source.port)));
@@ -256,15 +266,14 @@ struct PlanBuilder {
         if (node.input_bound[i]) {
           continue;
         }
+        auto name = node.input_name_views.size() > i ? node.input_name_views[i] : std::string_view{};
+        auto label = name.empty() ? std::to_string(i) : std::string(name);
         if (node.signature.inputs[i].required) {
           return tl::unexpected(
-            make_error(std::format("missing required input: {}.{}", node.id, node.signature.inputs[i].name)));
+            make_error(std::format("missing required input: {}.{}", node.id, label)));
         }
-        InputBinding missing_binding;
-        missing_binding.kind = InputBindingKind::Missing;
-        missing_binding.expected_type = node.signature.inputs[i].type;
-        node.inputs[i] = std::move(missing_binding);
-        node.input_bound[i] = true;
+        return tl::unexpected(
+          make_error(std::format("missing input binding: {}.{}", node.id, label)));
       }
     }
     return {};
@@ -299,21 +308,29 @@ struct PlanBuilder {
   }
 
   auto bind_outputs(ExecPlan& plan) -> Expected<void> {
+    plan.outputs.reserve(graph.outputs.size());
+    std::unordered_set<NameId> seen;
+    seen.reserve(graph.outputs.size());
     for (const auto& output : graph.outputs) {
       auto node_it = node_index.find(output.from_node);
       if (node_it == node_index.end()) {
         return tl::unexpected(make_error(std::format("output from unknown node: {}", output.from_node)));
       }
       auto& node = node_builds[static_cast<std::size_t>(node_it->second)];
-      auto out_it = node.output_port_map.find(output.from_port);
+      auto output_key = hash_name(output.from_port);
+      auto out_it = node.output_port_map.find(output_key);
       if (out_it == node.output_port_map.end()) {
         return tl::unexpected(
           make_error(std::format("output from unknown port: {}.{}", output.from_node, output.from_port)));
       }
-      if (plan.output_slots.contains(output.as)) {
+      if (output.as.empty()) {
+        return tl::unexpected(make_error("output name is required"));
+      }
+      NameId name_id = hash_name(output.as);
+      if (!seen.insert(name_id).second) {
         return tl::unexpected(make_error(std::format("duplicate output name: {}", output.as)));
       }
-      plan.output_slots.emplace(output.as, out_it->second);
+      plan.outputs.push_back(OutputSlot{output.as, name_id, out_it->second});
     }
     return {};
   }
@@ -357,7 +374,6 @@ struct PlanBuilder {
     plan.const_slots = std::move(const_slots);
     plan.topo_order = std::move(topo);
     plan.env_requirements = std::move(env_requirements);
-    plan.env_index = std::move(env_index);
 
     if (auto outputs_result = bind_outputs(plan); !outputs_result) {
       return tl::unexpected(outputs_result.error());

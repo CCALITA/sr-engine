@@ -9,18 +9,25 @@
 
 namespace sr::engine {
 
+/// Execution result containing graph output slots keyed by output name.
 struct ExecResult {
   std::unordered_map<std::string, ValueSlot> outputs;
 };
 
+/// Thread pool sizing for the executor.
 struct ExecutorConfig {
+  /// Compute worker count (<=0 uses hardware concurrency, fallback to 4).
   int compute_threads = 0;
+  /// IO worker count (<=0 defaults to 2).
   int io_threads = 0;
 };
 
+/// Executes compiled plans using compute and IO worker pools.
 class Executor {
  public:
+  /// Construct an executor with the provided thread configuration.
   explicit Executor(ExecutorConfig config = {});
+  /// Stops worker pools and releases resources.
   ~Executor();
 
   Executor(const Executor&) = default;
@@ -28,7 +35,8 @@ class Executor {
   auto operator=(const Executor&) -> Executor& = default;
   auto operator=(Executor&&) noexcept -> Executor& = default;
 
- auto run(const ExecPlan& plan, RequestContext& ctx) const -> Expected<ExecResult>;
+  /// Execute a plan against a mutable request context.
+  auto run(const ExecPlan& plan, RequestContext& ctx) const -> Expected<ExecResult>;
 
  private:
   struct Pools;

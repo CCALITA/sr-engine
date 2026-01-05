@@ -4,11 +4,9 @@
 #include <iostream>
 #include <mutex>
 
-#include "engine/dsl.hpp"
-#include "engine/plan.hpp"
 #include "engine/trace.hpp"
 #include "kernel/sample_kernels.hpp"
-#include "runtime/executor.hpp"
+#include "runtime/runtime.hpp"
 
 namespace {
 
@@ -42,8 +40,8 @@ struct StdoutTraceSink {
 int main() {
   sr::kernel::register_builtin_types();
 
-  sr::engine::KernelRegistry registry;
-  sr::kernel::register_sample_kernels(registry);
+  sr::engine::Runtime runtime;
+  sr::kernel::register_sample_kernels(runtime.registry());
 
   const char* dsl = R"JSON(
   {
@@ -66,23 +64,12 @@ int main() {
   }
   )JSON";
 
-  sr::engine::Json json;
-  try {
-    json = sr::engine::Json::parse(dsl);
-  } catch (const std::exception& ex) {
-    std::cerr << "Failed to parse DSL: " << ex.what() << "\n";
-    return 1;
-  }
-
-  auto graph = sr::engine::parse_graph_json(json);
-  if (!graph) {
-    std::cerr << "Parse error: " << graph.error().message << "\n";
-    return 1;
-  }
-
-  auto plan = sr::engine::compile_plan(*graph, registry);
-  if (!plan) {
-    std::cerr << "Compile error: " << plan.error().message << "\n";
+  sr::engine::StageOptions stage_options;
+  stage_options.source = "examples/simple.cpp";
+  stage_options.publish = true;
+  auto snapshot = runtime.stage_dsl(dsl, stage_options);
+  if (!snapshot) {
+    std::cerr << "Stage error: " << snapshot.error().message << "\n";
     return 1;
   }
 
@@ -93,8 +80,7 @@ int main() {
                     sr::engine::trace::to_flags(sr::engine::trace::TraceFlag::NodeSpan);
   ctx.set_env<int64_t>("x", 7);
 
-  sr::engine::Executor executor;
-  auto result = executor.run(*plan, ctx);
+  auto result = runtime.run("demo", ctx);
   if (!result) {
     std::cerr << "Run error: " << result.error().message << "\n";
     return 1;

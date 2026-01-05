@@ -11,6 +11,7 @@
 
 namespace sr::engine {
 
+/// Internal binding source type for compiled inputs.
 enum class InputBindingKind {
   Slot,
   Env,
@@ -18,6 +19,7 @@ enum class InputBindingKind {
   Missing,
 };
 
+/// Resolved input binding for a compiled node.
 struct InputBinding {
   InputBindingKind kind = InputBindingKind::Slot;
   int slot_index = -1;
@@ -26,6 +28,7 @@ struct InputBinding {
   entt::meta_type expected_type{};
 };
 
+/// Compiled node with resolved kernel and port bindings.
 struct CompiledNode {
   std::string id;
   KernelHandle kernel;
@@ -33,15 +36,18 @@ struct CompiledNode {
   std::vector<int> outputs;
 };
 
+/// Slot type description for execution storage.
 struct SlotSpec {
   entt::meta_type type{};
 };
 
+/// Required env entry for plan execution.
 struct EnvRequirement {
   std::string key;
   entt::meta_type type{};
 };
 
+/// Compiled execution plan for a graph.
 struct ExecPlan {
   std::string name;
   std::vector<CompiledNode> nodes;
@@ -55,6 +61,8 @@ struct ExecPlan {
   std::vector<int> pending_counts;
   std::unordered_map<std::string, int> output_slots;
 };
+
+/// Compile a parsed graph against a kernel registry.
 auto compile_plan(const GraphDef& graph, const KernelRegistry& registry) -> Expected<ExecPlan>;
 
 }  // namespace sr::engine

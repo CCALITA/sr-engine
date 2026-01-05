@@ -21,14 +21,17 @@
 
 namespace sr::engine {
 
+/// JSON type used by the DSL and kernel parameters.
 using Json = nlohmann::json;
 namespace ex = stdexec;
 
+/// Port cardinality constraint for compiled signatures.
 enum class Cardinality {
   Single,
   Multi,
 };
 
+/// Describes a single input/output port type.
 struct PortDesc {
   std::string name;
   entt::meta_type type;
@@ -36,11 +39,13 @@ struct PortDesc {
   Cardinality cardinality = Cardinality::Single;
 };
 
+/// Kernel signature extracted from callable types.
 struct Signature {
   std::vector<PortDesc> inputs;
   std::vector<PortDesc> outputs;
 };
 
+/// Type-erased slot holding a registered value instance.
 struct ValueSlot {
   entt::meta_type type{};
   std::shared_ptr<void> storage{};
@@ -92,6 +97,8 @@ struct InputRef {
 
 } // namespace detail
 class InputValues;
+
+/// Writable view over a kernel's output slots.
 class OutputValues {
   friend InputValues;
 
@@ -114,6 +121,8 @@ public:
 private:
   std::span<ValueSlot *> slots_;
 };
+
+/// Read-only view over a kernel's input slots.
 class InputValues {
 public:
   InputValues() : refs_() {}
@@ -157,6 +166,7 @@ private:
 // ex::set_stopped_t(),
 //  ex::set_error_t(std::exception_ptr)>;
 
+/// Per-request mutable state (env values, cancellation, tracing).
 struct RequestContext {
   std::unordered_map<std::string, ValueSlot> env;
   std::chrono::steady_clock::time_point deadline{
@@ -185,6 +195,7 @@ struct RequestContext {
   }
 };
 
+/// Request view with validated env updates for a compiled plan.
 class RequestContextView {
 public:
   RequestContextView() = default;
@@ -238,6 +249,7 @@ private:
   const std::unordered_map<std::string, int> *env_index_ = nullptr;
 };
 
+/// Register a C++ type for use in signatures and value slots.
 template <typename T> inline auto register_type(const char *name) -> void {
   entt::meta<T>().type(entt::hashed_string{name});
 }

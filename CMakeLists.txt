@@ -12,6 +12,7 @@ add_library(sr_engine
   src/engine/plan.cpp
   src/engine/registry.cpp
   src/runtime/executor.cpp
+  src/runtime/runtime.cpp
   src/kernel/sample_kernels.cpp
 )
 
@@ -25,6 +26,12 @@ add_executable(sr_engine_example
 )
 
 target_link_libraries(sr_engine_example PRIVATE sr_engine)
+
+add_executable(sr_engine_hot_swap
+  examples/hot_swap.cpp
+)
+
+target_link_libraries(sr_engine_hot_swap PRIVATE sr_engine)
 
 enable_testing()
 

@@ -11,10 +11,12 @@ enum class TaskType : int;
 
 namespace trace {
 
+/// Trace identifiers and timestamp tick types.
 using TraceId = std::uint64_t;
 using SpanId = std::uint64_t;
 using Tick = std::uint64_t;
 
+/// Span completion status used for run/node events.
 enum class SpanStatus : std::uint8_t {
   Ok,
   Error,
@@ -23,6 +25,7 @@ enum class SpanStatus : std::uint8_t {
   Skipped,
 };
 
+/// Feature flags enabling optional trace events.
 enum class TraceFlag : std::uint32_t {
   RunSpan = 1u << 0,
   NodeSpan = 1u << 1,
@@ -41,12 +44,14 @@ constexpr auto has_flag(TraceFlags flags, TraceFlag flag) -> bool {
   return (flags & to_flags(flag)) != 0;
 }
 
+/// Monotonic timestamp in nanoseconds since steady clock epoch.
 inline auto steady_tick() -> Tick {
   using clock = std::chrono::steady_clock;
   return static_cast<Tick>(
     std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now().time_since_epoch()).count());
 }
 
+/// Run-level start event.
 struct RunStart {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -54,6 +59,7 @@ struct RunStart {
   Tick ts = 0;
 };
 
+/// Run-level completion event.
 struct RunEnd {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -62,6 +68,7 @@ struct RunEnd {
   SpanStatus status = SpanStatus::Ok;
 };
 
+/// Node execution start event.
 struct NodeStart {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -72,6 +79,7 @@ struct NodeStart {
   Tick ts = 0;
 };
 
+/// Node execution completion event.
 struct NodeEnd {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -82,6 +90,7 @@ struct NodeEnd {
   SpanStatus status = SpanStatus::Ok;
 };
 
+/// Node execution error event.
 struct NodeError {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -90,6 +99,7 @@ struct NodeError {
   std::string_view message;
 };
 
+/// Queue wait measurement for a node dispatch.
 struct QueueDelay {
   TraceId trace_id = 0;
   SpanId span_id = 0;
@@ -99,15 +109,18 @@ struct QueueDelay {
   Tick start_ts = 0;
 };
 
+/// Clock provider for tracing.
 struct TraceClock {
   Tick (*now)() = nullptr;
 };
 
+/// Sampler callback for enabling trace flags per run.
 struct TraceSampler {
   void* user = nullptr;
   TraceFlags (*decide)(void*, std::string_view, TraceId) = nullptr;
 };
 
+/// Type-erased sink that receives tracing callbacks.
 struct TraceSinkRef {
   void* self = nullptr;
   void (*run_start)(void*, const RunStart&) = nullptr;
@@ -117,6 +130,7 @@ struct TraceSinkRef {
   void (*node_error)(void*, const NodeError&) = nullptr;
   void (*queue_delay)(void*, const QueueDelay&) = nullptr;
 
+  /// Returns true when any callback is installed.
   auto enabled() const -> bool {
     return run_start || run_end || node_start || node_end || node_error || queue_delay;
   }
@@ -210,6 +224,7 @@ auto bind_queue_delay(void (**slot)(void*, const QueueDelay&)) -> void {
 
 }  // namespace detail
 
+/// Create a TraceSinkRef from a sink object with on_* methods.
 template <typename Sink>
 auto make_sink(Sink& sink) -> TraceSinkRef {
   TraceSinkRef ref;
@@ -223,6 +238,7 @@ auto make_sink(Sink& sink) -> TraceSinkRef {
   return ref;
 }
 
+/// Per-request tracing configuration and state.
 struct TraceContext {
   TraceSinkRef sink;
   TraceClock clock{&steady_tick};
@@ -231,6 +247,7 @@ struct TraceContext {
   TraceId trace_id = 0;
   std::atomic<SpanId> next_span{1};
 
+  /// Returns true when tracing is enabled and flags are set.
   auto enabled() const -> bool {
     return sink.enabled() && flags != 0;
   }
@@ -256,36 +273,42 @@ inline constexpr bool kTraceEnabled = false;
 inline constexpr bool kTraceEnabled = true;
 #endif
 
+/// Emit a RunStart event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const RunStart& event) -> void {
   if (sink.run_start) {
     sink.run_start(sink.self, event);
   }
 }
 
+/// Emit a RunEnd event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const RunEnd& event) -> void {
   if (sink.run_end) {
     sink.run_end(sink.self, event);
   }
 }
 
+/// Emit a NodeStart event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const NodeStart& event) -> void {
   if (sink.node_start) {
     sink.node_start(sink.self, event);
   }
 }
 
+/// Emit a NodeEnd event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const NodeEnd& event) -> void {
   if (sink.node_end) {
     sink.node_end(sink.self, event);
   }
 }
 
+/// Emit a NodeError event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const NodeError& event) -> void {
   if (sink.node_error) {
     sink.node_error(sink.self, event);
   }
 }
 
+/// Emit a QueueDelay event when a callback is installed.
 inline auto emit(TraceSinkRef sink, const QueueDelay& event) -> void {
   if (sink.queue_delay) {
     sink.queue_delay(sink.self, event);

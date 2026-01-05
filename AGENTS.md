@@ -11,7 +11,7 @@
 - `build/`: generated build output (do not commit).
 
 ## Architecture Overview
-- The engine loads a JSON DSL, parses it into a `GraphDef`, resolves bindings/types, and compiles to an `ExecPlan`. The runtime executes the plan in topological order. Kernels are registered via `KernelRegistry`; signatures are inferred from callable argument/return types and port names come from the DSL. `RequestContext` carries a `TraceContext` that can emit per-run and per-node events.
+- The engine loads a JSON DSL, parses it into a `GraphDef`, resolves bindings/types, and compiles to an `ExecPlan`. The runtime executes the plan in topological order. Kernels are registered via `KernelRegistry`; signatures are inferred from callable argument/return types and port names come from the DSL. `Runtime` wraps `KernelRegistry`, `GraphStore`, and `Executor` to support hot-swapped DSL flows (see `docs/runtime.md`). `RequestContext` carries a `TraceContext` that can emit per-run and per-node events.
 
 
 ## Build, Test, and Development Commands

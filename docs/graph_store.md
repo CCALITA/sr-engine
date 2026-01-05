@@ -37,6 +37,24 @@ resolve(name[, version]) -> snapshot
 executor.run(snapshot->plan, ctx)
 ```
 
+## Runtime Integration
+Use `Runtime` when you want to stage DSL and run the active graph in one place.
+```
+sr::engine::Runtime runtime;
+sr::kernel::register_sample_kernels(runtime.registry());
+
+runtime.stage_dsl(dsl_v1, {.publish = true});
+runtime.run("demo", ctx);
+
+runtime.stage_dsl(dsl_v2, {.publish = true});
+runtime.run("demo", ctx); // new active version
+```
+
+## Thread Safety
+- `GraphStore` supports concurrent `stage/publish/resolve`; active snapshots are lock-free to read.
+- `KernelRegistry` lookups are safe while registering, but new registrations do not affect existing snapshots.
+- In-flight runs pin a snapshot, so hot-swaps never mutate a running plan.
+
 ## Guarantees
 - Reads are consistent per run (snapshot pinned by shared_ptr).
 - Updates never affect in‑flight runs.

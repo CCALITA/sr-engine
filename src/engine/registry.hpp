@@ -1,6 +1,9 @@
 #pragma once
 
 #include <functional>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -12,11 +15,21 @@
 
 namespace sr::engine {
 
+/// Registry of kernel factories used during graph compilation.
 class KernelRegistry {
  public:
+  /// Factory returns a fully bound kernel handle from JSON params.
   using FactoryFn = std::function<Expected<KernelHandle>(const Json& params)>;
 
+  KernelRegistry() = default;
+  KernelRegistry(const KernelRegistry&) = delete;
+  auto operator=(const KernelRegistry&) -> KernelRegistry& = delete;
+  KernelRegistry(KernelRegistry&& other) noexcept;
+  auto operator=(KernelRegistry&& other) noexcept -> KernelRegistry&;
+
+  /// Register a raw factory for a kernel name.
   auto register_factory(std::string name, FactoryFn factory) -> void;
+  /// Register a stateless kernel callable (inputs/outputs come from the DSL).
   template <detail::KernelFn Fn>
   auto register_kernel(std::string name, Fn fn, TaskType task_type = TaskType::Compute) -> void {
     auto inputs = std::vector<std::string>{};
@@ -28,6 +41,7 @@ class KernelRegistry {
                      });
   }
 
+  /// Register a kernel factory that builds a callable from JSON params.
   template <detail::KernelFactory Factory>
   auto register_kernel_with_params(std::string name, Factory factory,
                                    TaskType task_type = TaskType::Compute) -> void {
@@ -50,10 +64,12 @@ class KernelRegistry {
         }
       });
   }
-  auto find(std::string_view name) const -> const FactoryFn*;
+  /// Lookup a factory by kernel name (nullptr when missing).
+  auto find(std::string_view name) const -> std::shared_ptr<const FactoryFn>;
 
  private:
-  std::unordered_map<std::string, FactoryFn> factories_;
+  mutable std::shared_mutex mutex_;
+  std::unordered_map<std::string, std::shared_ptr<FactoryFn>> factories_;
 };
 
 }  // namespace sr::engine

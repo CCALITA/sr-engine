@@ -1,11 +1,11 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -19,7 +19,31 @@ namespace sr::engine {
 class KernelRegistry {
  public:
   /// Factory returns a fully bound kernel handle from JSON params.
-  using FactoryFn = std::function<Expected<KernelHandle>(const Json& params)>;
+  class Factory {
+   public:
+    Factory() = default;
+
+    template <typename Fn>
+      requires(std::is_invocable_r_v<Expected<KernelHandle>, Fn, const Json&> &&
+               !std::is_same_v<std::decay_t<Fn>, Factory>)
+    Factory(Fn fn) {
+      using FnT = std::decay_t<Fn>;
+      auto holder = std::make_shared<FnT>(std::move(fn));
+      state_ = std::move(holder);
+      invoke_ = [](void* ptr, const Json& params) -> Expected<KernelHandle> {
+        return (*static_cast<FnT*>(ptr))(params);
+      };
+    }
+
+    auto operator()(const Json& params) const -> Expected<KernelHandle> {
+      return invoke_(state_.get(), params);
+    }
+
+   private:
+    using InvokeFn = Expected<KernelHandle> (*)(void*, const Json&);
+    std::shared_ptr<void> state_;
+    InvokeFn invoke_ = nullptr;
+  };
 
   KernelRegistry() = default;
   KernelRegistry(const KernelRegistry&) = delete;
@@ -28,7 +52,7 @@ class KernelRegistry {
   auto operator=(KernelRegistry&& other) noexcept -> KernelRegistry&;
 
   /// Register a raw factory for a kernel name.
-  auto register_factory(std::string name, FactoryFn factory) -> void;
+  auto register_factory(std::string name, Factory factory) -> void;
   /// Register a stateless kernel callable (must be noexcept; inputs/outputs come from the DSL).
   template <detail::KernelFn Fn>
   auto register_kernel(std::string name, Fn fn, TaskType task_type = TaskType::Compute) -> void {
@@ -65,11 +89,11 @@ class KernelRegistry {
       });
   }
   /// Lookup a factory by kernel name (nullptr when missing).
-  auto find(std::string_view name) const -> std::shared_ptr<const FactoryFn>;
+  auto find(std::string_view name) const -> std::shared_ptr<const Factory>;
 
  private:
   mutable std::shared_mutex mutex_;
-  std::unordered_map<std::string, std::shared_ptr<FactoryFn>> factories_;
+  std::unordered_map<std::string, std::shared_ptr<Factory>> factories_;
 };
 
 }  // namespace sr::engine

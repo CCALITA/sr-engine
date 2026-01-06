@@ -16,12 +16,12 @@ auto KernelRegistry::operator=(KernelRegistry&& other) noexcept -> KernelRegistr
   return *this;
 }
 
-auto KernelRegistry::register_factory(std::string name, FactoryFn factory) -> void {
+auto KernelRegistry::register_factory(std::string name, Factory factory) -> void {
   std::unique_lock<std::shared_mutex> lock(mutex_);
-  factories_[std::move(name)] = std::make_shared<FactoryFn>(std::move(factory));
+  factories_[std::move(name)] = std::make_shared<Factory>(std::move(factory));
 }
 
-auto KernelRegistry::find(std::string_view name) const -> std::shared_ptr<const FactoryFn> {
+auto KernelRegistry::find(std::string_view name) const -> std::shared_ptr<const Factory> {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   auto it = factories_.find(std::string(name));
   if (it == factories_.end()) {

@@ -22,10 +22,9 @@
 
 ## Coding Style & Naming Conventions
 - DO NOT THINK OF MINIMAL CHANGE, ALWAYS implement PERFECT and FANCY as possible.
-- C++20 codebase; keep headers in `.hpp` and sources in `.cpp`.
-- Use 2-space indentation and same-line braces to match existing files.
-- be aggressive to refact and optimize existing API.
-- make detailed comments on every function and class.
+- prefer C++20 feature, prefer functional programming style.
+- no need of backwards compatibility, free to refact and change existing API.
+- standard comments on implemented function and class.
 
 ## Testing Guidelines
 There is no test framework wired yet. Add tests under a new `tests/` directory using `*_test.cpp` naming, and register them in `CMakeLists.txt`. Focus on DSL parsing errors, compile-time validation, kernel execution, and output propagation.
@@ -36,4 +35,4 @@ There is no test framework wired yet. Add tests under a new `tests/` directory u
 - Define `SR_TRACE_DISABLED` to compile out tracing paths entirely.
 
 ## Commit & Pull Request Guidelines
-No git history is available in this repository. Use short, imperative commit subjects (e.g., “Add plan validation”). For PRs, include a concise description, the commands run, and any user-visible behavior changes (CLI output or API changes).
+Use short, imperative commit subjects (e.g., “Add plan validation”). For PRs, include a concise description, the commands run, and any user-visible behavior changes (CLI output or API changes).

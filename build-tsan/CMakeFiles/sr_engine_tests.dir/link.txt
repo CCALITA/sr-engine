@@ -1,0 +1,1 @@
+/Library/Developer/CommandLineTools/usr/bin/c++ -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -Wl,-search_paths_first -Wl,-headerpad_max_install_names -fsanitize=thread CMakeFiles/sr_engine_tests.dir/tests/engine_tests.cpp.o -o sr_engine_tests  libsr_engine.a 

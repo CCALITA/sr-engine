@@ -5,9 +5,9 @@
 #include <format>
 #include <fstream>
 #include <mutex>
-#include <thread>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -21,34 +21,34 @@ struct GraphFileState {
   bool had_error = false;
 };
 
-auto path_matches_extension(const std::filesystem::path& path, const std::string& extension) -> bool {
+auto path_matches_extension(const std::filesystem::path &path,
+                            const std::string &extension) -> bool {
   if (extension.empty()) {
     return true;
   }
   return path.extension() == extension;
 }
 
-}  // namespace
+} // namespace
 
 class Runtime::GraphDaemon {
- public:
-  GraphDaemon(Runtime& runtime, std::filesystem::path root, std::chrono::milliseconds poll_interval,
-              std::string extension, bool recursive, bool publish, bool allow_replace)
-      : runtime_(runtime),
-        root_(std::move(root)),
-        poll_interval_(poll_interval),
-        extension_(std::move(extension)),
-        recursive_(recursive),
-        publish_(publish),
+public:
+  GraphDaemon(Runtime &runtime, std::filesystem::path root,
+              std::chrono::milliseconds poll_interval, std::string extension,
+              bool recursive, bool publish, bool allow_replace)
+      : runtime_(runtime), root_(std::move(root)),
+        poll_interval_(poll_interval), extension_(std::move(extension)),
+        recursive_(recursive), publish_(publish),
         allow_replace_(allow_replace) {
     start();
   }
 
   ~GraphDaemon() { stop(); }
 
- private:
+private:
   auto start() -> void {
     if (running_) {
+      // WTH?
       return;
     }
     running_ = true;
@@ -80,7 +80,8 @@ class Runtime::GraphDaemon {
       if (poll_interval_.count() <= 0) {
         wakeup_.wait(lock, [this] { return stop_requested_; });
       } else {
-        wakeup_.wait_for(lock, poll_interval_, [this] { return stop_requested_; });
+        wakeup_.wait_for(lock, poll_interval_,
+                         [this] { return stop_requested_; });
       }
       if (stop_requested_) {
         break;
@@ -100,17 +101,19 @@ class Runtime::GraphDaemon {
       return;
     }
     if (!std::filesystem::is_directory(root_, fs_error)) {
-      set_error(std::format("graph daemon root is not a directory: {}", root_.string()));
+      set_error(std::format("graph daemon root is not a directory: {}",
+                            root_.string()));
       return;
     }
 
     std::unordered_set<std::string> seen;
-    auto handle_entry = [this, &seen](const std::filesystem::directory_entry& entry) {
+    auto handle_entry = [this,
+                         &seen](const std::filesystem::directory_entry &entry) {
       std::error_code entry_error;
       if (!entry.is_regular_file(entry_error)) {
         return;
       }
-      const auto& path = entry.path();
+      const auto &path = entry.path();
       if (!path_matches_extension(path, extension_)) {
         return;
       }
@@ -118,11 +121,14 @@ class Runtime::GraphDaemon {
       seen.insert(path_string);
       auto last_write = std::filesystem::last_write_time(path, entry_error);
       if (entry_error) {
-        set_error(std::format("stat failed for {}: {}", path_string, entry_error.message()));
+        set_error(std::format("stat failed for {}: {}", path_string,
+                              entry_error.message()));
         return;
       }
       auto it = files_.find(path_string);
-      bool should_stage = it == files_.end() || it->second.last_write != last_write || it->second.had_error;
+      bool should_stage = it == files_.end() ||
+                          it->second.last_write != last_write ||
+                          it->second.had_error;
       if (!should_stage) {
         return;
       }
@@ -134,27 +140,31 @@ class Runtime::GraphDaemon {
       GraphFileState state{last_write, !staged};
       files_[path_string] = state;
       if (!staged) {
-        set_error(std::format("stage failed for {}: {}", path_string, staged.error().message));
+        set_error(std::format("stage failed for {}: {}", path_string,
+                              staged.error().message));
       }
     };
 
     if (recursive_) {
       std::error_code iter_error;
-      for (std::filesystem::recursive_directory_iterator it(root_, iter_error), end; it != end && !iter_error;
-           it.increment(iter_error)) {
+      for (std::filesystem::recursive_directory_iterator it(root_, iter_error),
+           end;
+           it != end && !iter_error; it.increment(iter_error)) {
         handle_entry(*it);
       }
       if (iter_error) {
-        set_error(std::format("scan failed for {}: {}", root_.string(), iter_error.message()));
+        set_error(std::format("scan failed for {}: {}", root_.string(),
+                              iter_error.message()));
       }
     } else {
       std::error_code iter_error;
-      for (std::filesystem::directory_iterator it(root_, iter_error), end; it != end && !iter_error;
-           it.increment(iter_error)) {
+      for (std::filesystem::directory_iterator it(root_, iter_error), end;
+           it != end && !iter_error; it.increment(iter_error)) {
         handle_entry(*it);
       }
       if (iter_error) {
-        set_error(std::format("scan failed for {}: {}", root_.string(), iter_error.message()));
+        set_error(std::format("scan failed for {}: {}", root_.string(),
+                              iter_error.message()));
       }
     }
 
@@ -172,7 +182,7 @@ class Runtime::GraphDaemon {
     last_error_ = std::move(message);
   }
 
-  Runtime& runtime_;
+  Runtime &runtime_;
   std::filesystem::path root_;
   std::chrono::milliseconds poll_interval_;
   std::string extension_;
@@ -188,27 +198,29 @@ class Runtime::GraphDaemon {
   std::optional<std::string> last_error_;
 };
 
-Runtime::Runtime(RuntimeConfig config) : store_(config.store), executor_(config.executor) {
+Runtime::Runtime(RuntimeConfig config)
+    : store_(config.store), executor_(config.executor) {
   if (config.graph_root && !config.graph_root->empty()) {
     daemon_ = std::make_unique<GraphDaemon>(
-      *this, *config.graph_root, config.graph_poll_interval, config.graph_extension,
-      config.graph_recursive, config.graph_publish, config.graph_allow_replace);
+        *this, *config.graph_root, config.graph_poll_interval,
+        config.graph_extension, config.graph_recursive, config.graph_publish,
+        config.graph_allow_replace);
   }
 }
 
 Runtime::~Runtime() = default;
 
-auto Runtime::registry() -> KernelRegistry& { return registry_; }
+auto Runtime::registry() -> KernelRegistry & { return registry_; }
 
-auto Runtime::registry() const -> const KernelRegistry& { return registry_; }
+auto Runtime::registry() const -> const KernelRegistry & { return registry_; }
 
-auto Runtime::stage_graph(const GraphDef& graph, const StageOptions& options)
-  -> Expected<std::shared_ptr<const PlanSnapshot>> {
+auto Runtime::stage_graph(const GraphDef &graph, const StageOptions &options)
+    -> Expected<std::shared_ptr<const PlanSnapshot>> {
   return store_.stage(graph, registry_, options);
 }
 
-auto Runtime::stage_json(const Json& json, const StageOptions& options)
-  -> Expected<std::shared_ptr<const PlanSnapshot>> {
+auto Runtime::stage_json(const Json &json, const StageOptions &options)
+    -> Expected<std::shared_ptr<const PlanSnapshot>> {
   auto graph = parse_graph_json(json);
   if (!graph) {
     return tl::unexpected(graph.error());
@@ -216,42 +228,48 @@ auto Runtime::stage_json(const Json& json, const StageOptions& options)
   return stage_graph(*graph, options);
 }
 
-auto Runtime::stage_dsl(std::string_view dsl, const StageOptions& options)
-  -> Expected<std::shared_ptr<const PlanSnapshot>> {
+auto Runtime::stage_dsl(std::string_view dsl, const StageOptions &options)
+    -> Expected<std::shared_ptr<const PlanSnapshot>> {
   Json json;
   try {
     json = Json::parse(dsl);
-  } catch (const std::exception& ex) {
-    return tl::unexpected(make_error(std::format("dsl parse error: {}", ex.what())));
+  } catch (const std::exception &ex) {
+    return tl::unexpected(
+        make_error(std::format("dsl parse error: {}", ex.what())));
   }
   return stage_json(json, options);
 }
 
-auto Runtime::stage_file(std::string_view path, const StageOptions& options)
-  -> Expected<std::shared_ptr<const PlanSnapshot>> {
+auto Runtime::stage_file(std::string_view path, const StageOptions &options)
+    -> Expected<std::shared_ptr<const PlanSnapshot>> {
   std::ifstream file{std::string(path)};
   if (!file) {
-    return tl::unexpected(make_error(std::format("failed to open dsl file: {}", path)));
+    return tl::unexpected(
+        make_error(std::format("failed to open dsl file: {}", path)));
   }
   std::ostringstream buffer;
   buffer << file.rdbuf();
   return stage_dsl(buffer.str(), options);
 }
 
-auto Runtime::publish(std::string_view name, int version, PublishOptions options)
-  -> Expected<std::shared_ptr<const PlanSnapshot>> {
+auto Runtime::publish(std::string_view name, int version,
+                      PublishOptions options)
+    -> Expected<std::shared_ptr<const PlanSnapshot>> {
   return store_.publish(name, version, options);
 }
 
-auto Runtime::resolve(std::string_view name) const -> std::shared_ptr<const PlanSnapshot> {
+auto Runtime::resolve(std::string_view name) const
+    -> std::shared_ptr<const PlanSnapshot> {
   return store_.resolve(name);
 }
 
-auto Runtime::resolve(std::string_view name, int version) const -> std::shared_ptr<const PlanSnapshot> {
+auto Runtime::resolve(std::string_view name, int version) const
+    -> std::shared_ptr<const PlanSnapshot> {
   return store_.resolve(name, version);
 }
 
-auto Runtime::active_version(std::string_view name) const -> std::optional<int> {
+auto Runtime::active_version(std::string_view name) const
+    -> std::optional<int> {
   return store_.active_version(name);
 }
 
@@ -263,32 +281,36 @@ auto Runtime::evict(std::string_view name, int version) -> bool {
   return store_.evict(name, version);
 }
 
-auto Runtime::run(std::string_view name, RequestContext& ctx) const -> Expected<ExecResult> {
+auto Runtime::run(std::string_view name, RequestContext &ctx) const
+    -> Expected<ExecResult> {
   auto snapshot = store_.resolve(name);
   if (!snapshot) {
     auto versions = store_.list_versions(name);
     if (!versions.empty()) {
-      return tl::unexpected(make_error(std::format("no active version for graph: {}", name)));
+      return tl::unexpected(
+          make_error(std::format("no active version for graph: {}", name)));
     }
     return tl::unexpected(make_error(std::format("graph not found: {}", name)));
   }
   return run(snapshot, ctx);
 }
 
-auto Runtime::run(std::string_view name, int version, RequestContext& ctx) const -> Expected<ExecResult> {
+auto Runtime::run(std::string_view name, int version, RequestContext &ctx) const
+    -> Expected<ExecResult> {
   auto snapshot = store_.resolve(name, version);
   if (!snapshot) {
-    return tl::unexpected(make_error(std::format("graph version not found: {} v{}", name, version)));
+    return tl::unexpected(make_error(
+        std::format("graph version not found: {} v{}", name, version)));
   }
   return run(snapshot, ctx);
 }
 
-auto Runtime::run(const std::shared_ptr<const PlanSnapshot>& snapshot, RequestContext& ctx) const
-  -> Expected<ExecResult> {
+auto Runtime::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
+                  RequestContext &ctx) const -> Expected<ExecResult> {
   if (!snapshot) {
     return tl::unexpected(make_error("snapshot is null"));
   }
   return executor_.run(snapshot->plan, ctx);
 }
 
-}  // namespace sr::engine
+} // namespace sr::engine

@@ -33,10 +33,20 @@ add_executable(sr_engine_hot_swap
 
 target_link_libraries(sr_engine_hot_swap PRIVATE sr_engine)
 
+add_executable(sr_engine_complex_example
+  examples/complex.cpp
+)
+
+target_link_libraries(sr_engine_complex_example PRIVATE sr_engine)
+
 enable_testing()
 
 add_executable(sr_engine_tests
   tests/engine_tests.cpp
+  tests/test_concurrency.cpp
+  tests/test_core.cpp
+  tests/test_runtime.cpp
+  tests/test_trace.cpp
 )
 
 target_link_libraries(sr_engine_tests PRIVATE sr_engine)

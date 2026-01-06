@@ -7,8 +7,6 @@
 
 namespace sr::engine {
 
-enum class TaskType : int;
-
 namespace trace {
 
 /// Trace identifiers and timestamp tick types.
@@ -75,7 +73,6 @@ struct NodeStart {
   SpanId parent_span_id = 0;
   std::string_view node_id;
   int node_index = -1;
-  TaskType task_type = TaskType{};
   Tick ts = 0;
 };
 

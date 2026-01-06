@@ -1,0 +1,52 @@
+[
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/engine/dsl.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/engine/dsl.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/engine/dsl.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/engine/graph_store.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/engine/graph_store.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/engine/graph_store.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/engine/plan.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/engine/plan.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/engine/plan.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/engine/registry.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/engine/registry.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/engine/registry.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/runtime/executor.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/runtime/executor.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/runtime/executor.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/runtime/runtime.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/runtime/runtime.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/runtime/runtime.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine.dir/src/kernel/sample_kernels.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/src/kernel/sample_kernels.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/src/kernel/sample_kernels.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine_example.dir/examples/simple.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/examples/simple.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/examples/simple.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine_hot_swap.dir/examples/hot_swap.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/examples/hot_swap.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/examples/hot_swap.cpp"
+},
+{
+  "directory": "/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan",
+  "command": "/Library/Developer/CommandLineTools/usr/bin/c++  -I/Users/fanxiyao.3/codingRoot/sr-engine/src -I/Users/fanxiyao.3/codingRoot/sr-engine/thirdparty/stdexec/include -fsanitize=thread -fno-omit-frame-pointer -O2 -g -DNDEBUG -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk -std=gnu++20 -o CMakeFiles/sr_engine_tests.dir/tests/engine_tests.cpp.o -c /Users/fanxiyao.3/codingRoot/sr-engine/tests/engine_tests.cpp",
+  "file": "/Users/fanxiyao.3/codingRoot/sr-engine/tests/engine_tests.cpp"
+}
+]

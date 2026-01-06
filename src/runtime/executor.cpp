@@ -90,6 +90,7 @@ struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   std::vector<ValueBox *> output_ptrs;
   std::vector<trace::Tick> enqueue_ticks;
   std::vector<int> pending_counts;
+  std::vector<int> scheduled;
 
   std::atomic<int> pending_nodes{0};
   std::atomic<bool> aborted{false};
@@ -210,6 +211,7 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
   }
 
   pending_counts = plan_ref.pending_counts;
+  scheduled.assign(node_count, 0);
   pending_nodes.store(static_cast<int>(node_count), std::memory_order_release);
   aborted.store(false, std::memory_order_release);
   has_error.store(false, std::memory_order_release);
@@ -229,6 +231,15 @@ auto RuntimeContext::schedule_initial_nodes() -> void {
 
 auto RuntimeContext::schedule_node(int node_index) -> void {
   if (!plan || !pool) {
+    return;
+  }
+  if (node_index < 0 ||
+      static_cast<std::size_t>(node_index) >= scheduled.size()) {
+    return;
+  }
+  int expected = 0;
+  if (!std::atomic_ref<int>(scheduled[static_cast<std::size_t>(node_index)])
+           .compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
     return;
   }
   if constexpr (trace::kTraceEnabled) {
@@ -263,8 +274,7 @@ auto RuntimeContext::execute_node(int node_index) -> void {
         start_ts = trace->now();
         trace::emit(trace->sink,
                     trace::NodeStart{trace_id, span_id, run_span, node.id,
-                                     node_index, node.kernel.task_type,
-                                     start_ts});
+                                     node_index, start_ts});
       }
       if (trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay) &&
           static_cast<std::size_t>(node_index) < enqueue_ticks.size()) {

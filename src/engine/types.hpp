@@ -134,11 +134,6 @@ public:
 private:
   std::span<const ValueBox *const> refs_;
 };
-
-// using rt_sender = stdexec::any_sender_of<ex::set_value_t(),
-// ex::set_stopped_t(),
-//  ex::set_error_t(std::exception_ptr)>;
-
 /// Per-request mutable state (env values, cancellation, tracing).
 struct RequestContext {
   std::unordered_map<std::string, ValueBox> env;

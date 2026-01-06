@@ -10,7 +10,6 @@ namespace sr::kernel {
 namespace {
 
 using sr::engine::KernelRegistry;
-using sr::engine::TaskType;
 
 auto get_int_param(const sr::engine::Json &params, const char *key,
                    int64_t fallback) -> int64_t {
@@ -94,9 +93,9 @@ auto register_sample_kernels(KernelRegistry &registry) -> void {
     return std::make_tuple(value, value);
   });
 
-  registry.register_kernel("sink_i64", [](int64_t) noexcept {}, TaskType::Io);
+  registry.register_kernel("sink_i64", [](int64_t) noexcept {});
 
-  registry.register_kernel("sink_str", [](const std::string&) noexcept {}, TaskType::Io);
+  registry.register_kernel("sink_str", [](const std::string&) noexcept {});
 
   registry.register_kernel("if_else_i64",
                            [](bool cond, int64_t then_value, int64_t else_value) noexcept {

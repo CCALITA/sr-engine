@@ -474,7 +474,7 @@ auto compute_from_fn(void* ptr, RequestContextView& ctx, const InputValues& inpu
 
 template <typename Fn>
 auto make_kernel_handle_from_fn(Fn fn, const std::vector<std::string>& input_names,
-                                const std::vector<std::string>& output_names, TaskType task_type)
+                                const std::vector<std::string>& output_names)
   -> Expected<KernelHandle> {
   auto signature_result = build_signature<Fn>(input_names, output_names);
   if (!signature_result) {
@@ -484,7 +484,6 @@ auto make_kernel_handle_from_fn(Fn fn, const std::vector<std::string>& input_nam
   handle.signature = std::move(*signature_result);
   handle.instance = std::make_shared<Fn>(std::move(fn));
   handle.compute = &compute_from_fn<Fn>;
-  handle.task_type = task_type;
   return handle;
 }
 

@@ -1,0 +1,7 @@
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/sr_engine.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/sr_engine_example.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/sr_engine_hot_swap.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/sr_engine_tests.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/test.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/edit_cache.dir
+/Users/fanxiyao.3/codingRoot/sr-engine/build-tsan/CMakeFiles/rebuild_cache.dir

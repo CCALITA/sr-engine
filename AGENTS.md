@@ -4,7 +4,7 @@
 - `src/engine/`: JSON DSL parsing, graph validation, plan compilation, and kernel registry/adapters.
 - `src/runtime/`: execution runtime (`Executor`) and request-context handling.
 - `src/kernel/`: built-in/sample kernels plus type registration.
-- `src/reflection/`: vendored headers (ENTT, JSON, expected).
+- `src/reflection/`: reflect helper wrap on (ENTT, JSON, expected).
 - `examples/`: runnable demos (e.g., `examples/simple.cpp`).
 - `thirdparty/`: external dependencies (stdexec).
 - `scripts/`: helper scripts (currently minimal).

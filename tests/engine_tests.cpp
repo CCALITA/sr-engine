@@ -31,6 +31,7 @@ auto test_dataflow_parallel_runs() -> bool;
 auto test_trace_parallel_runs() -> bool;
 auto test_runtime_concurrent_same_graph() -> bool;
 auto test_runtime_concurrent_multi_graph() -> bool;
+auto test_runtime_concurrent_multi_graph_req_bind() -> bool;
 auto test_runtime_concurrent_error_isolation() -> bool;
 auto test_runtime_concurrent_cancel_deadline() -> bool;
 auto test_runtime_concurrent_stage_publish() -> bool;
@@ -67,6 +68,8 @@ int main() {
            stats);
   run_test("runtime_concurrent_multi_graph", test_runtime_concurrent_multi_graph,
            stats);
+  run_test("runtime_concurrent_multi_graph_req_bind",
+           test_runtime_concurrent_multi_graph_req_bind, stats);
   run_test("runtime_concurrent_error_isolation",
            test_runtime_concurrent_error_isolation, stats);
   run_test("runtime_concurrent_cancel_deadline",

@@ -144,6 +144,115 @@ auto test_runtime_concurrent_multi_graph() -> bool {
   });
 }
 
+auto test_runtime_concurrent_multi_graph_req_bind() -> bool {
+  sr::engine::RuntimeConfig config;
+  config.executor.compute_threads = 3;
+  sr::engine::Runtime runtime(config);
+  configure_runtime(runtime);
+
+  const std::array<std::string_view, 3> names = {"rt_req_bind_add",
+                                                 "rt_req_bind_mul",
+                                                 "rt_req_bind_sum"};
+
+  sr::engine::StageOptions options;
+  options.publish = true;
+
+  {
+    sr::engine::Json graph = sr::engine::Json::object();
+    graph["version"] = 1;
+    graph["name"] = std::string(names[0]);
+    graph["nodes"] = sr::engine::Json::array();
+    graph["bindings"] = sr::engine::Json::array();
+    graph["outputs"] = sr::engine::Json::array();
+    graph["nodes"].push_back(
+        {{"id", "sum"},
+         {"kernel", "add"},
+         {"inputs", sr::engine::Json::array({"a", "b"})},
+         {"outputs", sr::engine::Json::array({"sum"})}});
+    graph["bindings"].push_back({{"to", "sum.a"}, {"from", "$req.x"}});
+    graph["bindings"].push_back({{"to", "sum.b"}, {"from", 10}});
+    graph["outputs"].push_back({{"from", "sum.sum"}, {"as", "out"}});
+    auto snapshot = runtime.stage_json(graph, options);
+    if (!snapshot) {
+      std::cerr << "stage error: " << snapshot.error().message << "\n";
+      return false;
+    }
+  }
+
+  {
+    sr::engine::Json graph = sr::engine::Json::object();
+    graph["version"] = 1;
+    graph["name"] = std::string(names[1]);
+    graph["nodes"] = sr::engine::Json::array();
+    graph["bindings"] = sr::engine::Json::array();
+    graph["outputs"] = sr::engine::Json::array();
+    graph["nodes"].push_back(
+        {{"id", "mul"},
+         {"kernel", "mul"},
+         {"params", {{"factor", 3}}},
+         {"inputs", sr::engine::Json::array({"value"})},
+         {"outputs", sr::engine::Json::array({"product"})}});
+    graph["bindings"].push_back({{"to", "mul.value"}, {"from", "$req.y"}});
+    graph["outputs"].push_back({{"from", "mul.product"}, {"as", "out"}});
+    auto snapshot = runtime.stage_json(graph, options);
+    if (!snapshot) {
+      std::cerr << "stage error: " << snapshot.error().message << "\n";
+      return false;
+    }
+  }
+
+  {
+    sr::engine::Json graph = sr::engine::Json::object();
+    graph["version"] = 1;
+    graph["name"] = std::string(names[2]);
+    graph["nodes"] = sr::engine::Json::array();
+    graph["bindings"] = sr::engine::Json::array();
+    graph["outputs"] = sr::engine::Json::array();
+    graph["nodes"].push_back(
+        {{"id", "sum"},
+         {"kernel", "add"},
+         {"inputs", sr::engine::Json::array({"a", "b"})},
+         {"outputs", sr::engine::Json::array({"sum"})}});
+    graph["bindings"].push_back({{"to", "sum.a"}, {"from", "$req.x"}});
+    graph["bindings"].push_back({{"to", "sum.b"}, {"from", "$req.y"}});
+    graph["outputs"].push_back({{"from", "sum.sum"}, {"as", "out"}});
+    auto snapshot = runtime.stage_json(graph, options);
+    if (!snapshot) {
+      std::cerr << "stage error: " << snapshot.error().message << "\n";
+      return false;
+    }
+  }
+
+  constexpr int kThreads = 6;
+  constexpr int kIterations = 40;
+  std::vector<uint64_t> seeds(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    seeds[i] = 0x3c6ef372fe94f82aULL ^ static_cast<uint64_t>(i);
+  }
+
+  return run_concurrent(kThreads, kIterations, [&](int thread_index, int) {
+    auto &seed = seeds[thread_index];
+    auto pick = static_cast<std::size_t>(next_seed(seed) % names.size());
+    int64_t x = static_cast<int64_t>(next_seed(seed) % 1000);
+    int64_t y = static_cast<int64_t>(next_seed(seed) % 1000);
+    sr::engine::RequestContext ctx;
+    ctx.set_env<int64_t>("x", x);
+    ctx.set_env<int64_t>("y", y);
+    auto result = runtime.run(names[pick], ctx);
+    if (!result) {
+      return false;
+    }
+    const auto &value = result->outputs.at("out").get<int64_t>();
+    if (pick == 0) {
+      return value == x + 10;
+    }
+    if (pick == 1) {
+      return value == y * 3;
+    }
+    return value == x + y;
+  });
+}
+
 auto test_runtime_concurrent_error_isolation() -> bool {
   sr::engine::RuntimeConfig config;
   config.executor.compute_threads = 2;

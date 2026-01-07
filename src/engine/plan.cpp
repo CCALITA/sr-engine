@@ -337,13 +337,17 @@ struct PlanBuilder {
 
   auto build_dependents(ExecPlan& plan) -> Expected<void> {
     plan.dependents.assign(plan.nodes.size(), {});
+    plan.dependencies.assign(plan.nodes.size(), {});
     plan.pending_counts.assign(plan.nodes.size(), 0);
+    plan.sinks.clear();
+    plan.sinks.reserve(plan.nodes.size());
     std::vector<int> seen(plan.nodes.size(), -1);
     int stamp = 0;
     for (std::size_t node_index = 0; node_index < plan.nodes.size(); ++node_index) {
       stamp += 1;
       int count = 0;
       const auto& node = plan.nodes[node_index];
+      auto& deps = plan.dependencies[node_index];
       for (const auto& binding : node.inputs) {
         if (binding.kind != InputBindingKind::Slot) {
           continue;
@@ -360,9 +364,18 @@ struct PlanBuilder {
         }
         seen[static_cast<std::size_t>(producer)] = stamp;
         plan.dependents[static_cast<std::size_t>(producer)].push_back(static_cast<int>(node_index));
+        deps.push_back(producer);
         count += 1;
       }
       plan.pending_counts[node_index] = count;
+    }
+    for (std::size_t node_index = 0; node_index < plan.nodes.size(); ++node_index) {
+      const std::size_t fanout = plan.dependents[node_index].size();
+      const bool is_sink = fanout == 0;
+      plan.nodes[node_index].sender_use_count = fanout + (is_sink ? 1u : 0u);
+      if (is_sink) {
+        plan.sinks.push_back(static_cast<int>(node_index));
+      }
     }
     return {};
   }

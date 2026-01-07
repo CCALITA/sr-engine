@@ -53,6 +53,10 @@ Notes:
 - `RequestContext.env` is snapshotted per run; kernels cannot mutate env during execution.
 - All node inputs must be bound in the DSL; missing inputs are compile errors.
 
+## Executor Backends
+- `Executor` builds a stdexec sender graph over the compiled plan and schedules nodes on the shared pool.
+- `LegacyExecutor` (see `runtime/executor_legacy.hpp`) preserves the original task-queue scheduler.
+
 ## Thread Safety Contract
 - `GraphStore` is safe to call from multiple threads.
 - `KernelRegistry` lookups are safe during registration, but snapshots are immutable once compiled.

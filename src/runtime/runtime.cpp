@@ -310,7 +310,7 @@ auto Runtime::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
   if (!snapshot) {
     return tl::unexpected(make_error("snapshot is null"));
   }
-  return executor_.run(snapshot->plan, ctx);
+  return executor_.run(snapshot, ctx);
 }
 
 } // namespace sr::engine

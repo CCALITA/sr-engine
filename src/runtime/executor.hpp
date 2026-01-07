@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 #include "engine/error.hpp"
-#include "engine/plan.hpp"
+#include "engine/graph_store.hpp"
 #include "engine/types.hpp"
 
 namespace sr::engine {
@@ -20,7 +20,7 @@ struct ExecutorConfig {
   int compute_threads = 0;
 };
 
-/// Executes compiled plans using a shared worker pool.
+/// Executes compiled plans using a sender-based graph over a shared worker pool.
 class Executor {
 public:
   /// Construct an executor with the provided thread configuration.
@@ -33,8 +33,9 @@ public:
   auto operator=(const Executor &) -> Executor & = default;
   auto operator=(Executor &&) noexcept -> Executor & = default;
 
-  /// Execute a plan against a mutable request context.
-  auto run(const ExecPlan &plan, RequestContext &ctx) const
+  /// Execute a plan snapshot against a mutable request context.
+  auto run(const std::shared_ptr<const PlanSnapshot> &snapshot,
+           RequestContext &ctx) const
       -> Expected<ExecResult>;
 
 private:

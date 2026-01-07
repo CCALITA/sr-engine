@@ -107,6 +107,16 @@ inline auto make_registry() -> sr::engine::KernelRegistry {
   return registry;
 }
 
+/// Wrap a compiled plan into a snapshot for executor runs.
+inline auto make_snapshot(sr::engine::ExecPlan plan)
+    -> std::shared_ptr<const sr::engine::PlanSnapshot> {
+  auto snapshot = std::make_shared<sr::engine::PlanSnapshot>();
+  snapshot->key = sr::engine::GraphKey{plan.name, 0};
+  snapshot->plan = std::move(plan);
+  snapshot->compiled_at = std::chrono::system_clock::now();
+  return snapshot;
+}
+
 /// Read an int64 param with a fallback for test kernels.
 inline auto get_int_param(const sr::engine::Json &params, const char *key,
                           int64_t fallback) -> int64_t {

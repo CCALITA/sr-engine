@@ -11,7 +11,11 @@ namespace sr::engine {
 struct KernelHandle {
   Signature signature;
   std::shared_ptr<void> instance;
-  Expected<void> (*compute)(void*, RequestContextView&, const InputValues&, OutputValues&);
+  Expected<void> (*compute)(void *, RequestContextView &, const InputValues &,
+                            OutputValues &);
 };
 
-}  // namespace sr::engine
+// TODO:
+
+struct KernelSender {};
+} // namespace sr::engine

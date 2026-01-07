@@ -38,9 +38,10 @@ auto test_basic_pipeline() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::Executor executor;
   sr::engine::RequestContext ctx;
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
     return false;
@@ -122,10 +123,11 @@ auto test_env_binding() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::Executor executor;
   sr::engine::RequestContext ctx;
   ctx.set_env<int64_t>("x", 8);
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
     return false;
@@ -280,10 +282,11 @@ auto test_env_type_mismatch() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::Executor executor;
   sr::engine::RequestContext ctx;
   ctx.set_env<std::string>("x", "bad-type");
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   return !result;
 }
 
@@ -321,9 +324,10 @@ auto test_dynamic_port_names() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::Executor executor;
   sr::engine::RequestContext ctx;
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
     return false;
@@ -402,11 +406,12 @@ auto test_dataflow_fanout_join() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::ExecutorConfig config;
   config.compute_threads = 4;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
     return false;
@@ -450,13 +455,13 @@ auto test_dataflow_parallel_runs() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   constexpr int kThreads = 6;
   constexpr int kIterations = 30;
   std::atomic<int> failures{0};
   std::vector<std::thread> threads;
   threads.reserve(kThreads);
 
-  const sr::engine::ExecPlan &compiled = *plan;
   sr::engine::ExecutorConfig config;
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
@@ -469,7 +474,7 @@ auto test_dataflow_parallel_runs() -> bool {
         int64_t x = static_cast<int64_t>(seed % 1000);
         sr::engine::RequestContext ctx;
         ctx.set_env<int64_t>("x", x);
-        auto result = executor.run(compiled, ctx);
+        auto result = executor.run(snapshot, ctx);
         if (!result) {
           failures.fetch_add(1);
           return;
@@ -560,11 +565,12 @@ auto test_dataflow_task_types() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::ExecutorConfig config;
   config.compute_threads = 1;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
     return false;
@@ -618,12 +624,13 @@ auto test_dataflow_cancelled_request() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::ExecutorConfig config;
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
   ctx.cancel();
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   return !result;
 }
 
@@ -657,12 +664,13 @@ auto test_dataflow_deadline_exceeded() -> bool {
     return false;
   }
 
+  auto snapshot = make_snapshot(std::move(*plan));
   sr::engine::ExecutorConfig config;
   config.compute_threads = 2;
   sr::engine::Executor executor(config);
   sr::engine::RequestContext ctx;
   ctx.deadline =
       std::chrono::steady_clock::now() - std::chrono::milliseconds(1);
-  auto result = executor.run(*plan, ctx);
+  auto result = executor.run(snapshot, ctx);
   return !result;
 }

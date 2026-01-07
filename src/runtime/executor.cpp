@@ -1,20 +1,58 @@
 #include "runtime/executor.hpp"
 
+#include "engine/graph_store.hpp"
+
 #include <atomic>
 #include <cassert>
+#include <exception>
 #include <format>
-#include <latch>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include <exec/any_sender_of.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
 namespace sr::engine {
 namespace {
+
+namespace ex = stdexec;
+
+template <class... Ts>
+using AnySender = exec::any_receiver_ref<ex::completion_signatures<Ts...>>::template any_sender<>;
+
+using NodeSender = AnySender<ex::set_value_t(), ex::set_error_t(EngineError),
+                             ex::set_error_t(std::exception_ptr), ex::set_stopped_t()>;
+using NodeSenderFactory = std::function<NodeSender()>;
+
+struct SenderRunState;
+
+struct get_run_state_t {
+  using is_forwarding_query = std::true_type;
+
+  template <class Env>
+  auto operator()(const Env &env) const noexcept
+      -> decltype(tag_invoke(*this, env)) {
+    return tag_invoke(*this, env);
+  }
+};
+
+inline constexpr get_run_state_t get_run_state{};
+
+struct RunEnv {
+  SenderRunState *state = nullptr;
+
+  friend auto tag_invoke(get_run_state_t, const RunEnv &env) noexcept
+      -> SenderRunState * {
+    return env.state;
+  }
+};
 
 auto reset_slots(const ExecPlan &plan, std::vector<ValueBox> &slots) -> void {
   slots.resize(plan.slots.size());
@@ -75,8 +113,8 @@ struct NodeBindings {
   std::size_t output_count = 0;
 };
 
-// Per-run state allocated on each Executor::run call.
-struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
+/// Per-run state allocated on each Executor::run call.
+struct SenderRunState {
   const ExecPlan *plan = nullptr;
   RequestContext *ctx = nullptr;
   trace::TraceContext *trace = nullptr;
@@ -89,31 +127,30 @@ struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   std::vector<const ValueBox *> input_refs;
   std::vector<ValueBox *> output_ptrs;
   std::vector<trace::Tick> enqueue_ticks;
-  std::vector<int> pending_counts;
-  std::vector<int> scheduled;
 
-  std::atomic<int> pending_nodes{0};
   std::atomic<bool> aborted{false};
   std::atomic<bool> has_error{false};
   std::mutex error_mutex;
   EngineError error;
+
   trace::TraceFlags trace_flags = 0;
   trace::TraceId trace_id = 0;
   trace::SpanId run_span = 0;
   trace::Tick run_start = 0;
-  std::latch done_latch{1};
 
+  /// Prepare run state from a compiled plan and request context.
   auto prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
                exec::static_thread_pool &pool_ref) -> Expected<void>;
-  auto schedule_initial_nodes() -> void;
-  auto schedule_node(int node_index) -> void;
-  auto execute_node(int node_index) -> void;
-  auto complete_node(int node_index) -> void;
-  auto finish_node() -> void;
+  /// Record node enqueue timestamps for queue delay tracing.
+  auto note_enqueue(int node_index) -> void;
+  /// Execute a single node on a worker thread.
+  template <typename StopToken>
+  auto execute_node(int node_index, StopToken stop_token) -> Expected<void>;
+  /// Record the first error and mark the run as aborted.
   auto record_error(std::string message) -> void;
 };
 
-auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
+auto SenderRunState::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
                              exec::static_thread_pool &pool_ref)
     -> Expected<void> {
   plan = &plan_ref;
@@ -188,12 +225,14 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
     for (const auto &binding : node.inputs) {
       switch (binding.kind) {
       case InputBindingKind::Slot: {
-        input_refs.push_back(&slots[static_cast<std::size_t>(binding.slot_index)]);
+        input_refs.push_back(
+            &slots[static_cast<std::size_t>(binding.slot_index)]);
         break;
       }
       case InputBindingKind::Const: {
         input_refs.push_back(
-            &plan_ref.const_slots[static_cast<std::size_t>(binding.const_index)]);
+            &plan_ref
+                 .const_slots[static_cast<std::size_t>(binding.const_index)]);
         break;
       }
       case InputBindingKind::Env: {
@@ -210,57 +249,31 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
     }
   }
 
-  pending_counts = plan_ref.pending_counts;
-  scheduled.assign(node_count, 0);
-  pending_nodes.store(static_cast<int>(node_count), std::memory_order_release);
   aborted.store(false, std::memory_order_release);
   has_error.store(false, std::memory_order_release);
   error = EngineError{};
   return {};
 }
 
-auto RuntimeContext::schedule_initial_nodes() -> void {
-  const std::size_t node_count = plan->nodes.size();
-  for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
-    if (std::atomic_ref<int>(pending_counts[node_index])
-            .load(std::memory_order_relaxed) == 0) {
-      schedule_node(static_cast<int>(node_index));
-    }
-  }
-}
-
-auto RuntimeContext::schedule_node(int node_index) -> void {
-  if (!plan || !pool) {
-    return;
-  }
-  if (node_index < 0 ||
-      static_cast<std::size_t>(node_index) >= scheduled.size()) {
-    return;
-  }
-  int expected = 0;
-  if (!std::atomic_ref<int>(scheduled[static_cast<std::size_t>(node_index)])
-           .compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
-    return;
-  }
+auto SenderRunState::note_enqueue(int node_index) -> void {
   if constexpr (trace::kTraceEnabled) {
-    if (trace && trace_flags != 0 &&
-        trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay) &&
-        node_index >= 0 &&
-        static_cast<std::size_t>(node_index) < enqueue_ticks.size()) {
-      enqueue_ticks[static_cast<std::size_t>(node_index)] = trace->now();
+    if (!trace || trace_flags == 0) {
+      return;
     }
+    if (!trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay)) {
+      return;
+    }
+    if (node_index < 0 ||
+        static_cast<std::size_t>(node_index) >= enqueue_ticks.size()) {
+      return;
+    }
+    enqueue_ticks[static_cast<std::size_t>(node_index)] = trace->now();
   }
-
-  auto scheduler = pool->get_scheduler();
-
-  auto self = shared_from_this();
-  auto task =
-      stdexec::schedule(scheduler) |
-      stdexec::then([self, node_index]() { self->execute_node(node_index); });
-  stdexec::start_detached(std::move(task));
 }
 
-auto RuntimeContext::execute_node(int node_index) -> void {
+template <typename StopToken>
+auto SenderRunState::execute_node(int node_index, StopToken stop_token)
+    -> Expected<void> {
   auto &ctx_ref = ctx_view;
   const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
   const auto &runtime = node_bindings[static_cast<std::size_t>(node_index)];
@@ -289,7 +302,7 @@ auto RuntimeContext::execute_node(int node_index) -> void {
   }
 
   auto finish_trace = [this, &node, node_index, span_id, start_ts](
-                        trace::SpanStatus status, std::string_view message) {
+                          trace::SpanStatus status, std::string_view message) {
     if constexpr (trace::kTraceEnabled) {
       if (trace && trace_flags != 0 && trace->sink.enabled()) {
         if (trace::has_flag(trace_flags, trace::TraceFlag::NodeSpan)) {
@@ -311,62 +324,51 @@ auto RuntimeContext::execute_node(int node_index) -> void {
     }
   };
 
-  if (aborted.load(std::memory_order_acquire)) {
+  if (aborted.load(std::memory_order_acquire) || stop_token.stop_requested()) {
     finish_trace(trace::SpanStatus::Skipped, {});
-    complete_node(node_index);
-    return;
+    return {};
   }
 
   if (ctx_ref.is_cancelled()) {
     record_error("request cancelled");
     finish_trace(trace::SpanStatus::Cancelled, {});
-    complete_node(node_index);
-    return;
+    return tl::unexpected(make_error("request cancelled"));
   }
 
   if (ctx_ref.deadline_exceeded()) {
     record_error("deadline exceeded");
     finish_trace(trace::SpanStatus::Deadline, {});
-    complete_node(node_index);
-    return;
+    return tl::unexpected(make_error("deadline exceeded"));
   }
 
   auto input_view = InputValues(std::span<const ValueBox *const>(
       input_refs.data() + runtime.input_offset, runtime.input_count));
   auto output_view = OutputValues(std::span<ValueBox *>(
       output_ptrs.data() + runtime.output_offset, runtime.output_count));
-  auto result = node.kernel.compute(node.kernel.instance.get(), ctx_ref,
-                                    input_view, output_view);
+
+  Expected<void> result{};
+  try {
+    result = node.kernel.compute(node.kernel.instance.get(), ctx_ref, input_view,
+                                 output_view);
+  } catch (const std::exception &ex) {
+    result = tl::unexpected(
+        make_error(std::format("kernel exception: {}", ex.what())));
+  } catch (...) {
+    result = tl::unexpected(make_error("kernel exception: unknown"));
+  }
+
   if (!result) {
     std::string message = result.error().message;
     finish_trace(trace::SpanStatus::Error, message);
-    record_error(std::move(message));
-    complete_node(node_index);
-    return;
+    record_error(message);
+    return tl::unexpected(make_error(std::move(message)));
   }
 
   finish_trace(trace::SpanStatus::Ok, {});
-  complete_node(node_index);
+  return {};
 }
 
-auto RuntimeContext::complete_node(int node_index) -> void {
-  for (int dependent : plan->dependents[static_cast<std::size_t>(node_index)]) {
-    if (std::atomic_ref<int>(
-            pending_counts[static_cast<std::size_t>(dependent)])
-            .fetch_sub(1, std::memory_order_acq_rel) == 1) {
-      schedule_node(dependent);
-    }
-  }
-  finish_node();
-}
-
-auto RuntimeContext::finish_node() -> void {
-  if (pending_nodes.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    done_latch.count_down();
-  }
-}
-
-auto RuntimeContext::record_error(std::string message) -> void {
+auto SenderRunState::record_error(std::string message) -> void {
   bool expected = false;
   if (has_error.compare_exchange_strong(expected, true,
                                         std::memory_order_acq_rel)) {
@@ -374,6 +376,147 @@ auto RuntimeContext::record_error(std::string message) -> void {
     error = make_error(std::move(message));
   }
   aborted.store(true, std::memory_order_release);
+}
+
+auto build_dependency_sender(const ExecPlan &plan, int node_index,
+                             const std::vector<NodeSenderFactory> &factories)
+    -> Expected<NodeSender> {
+  if (node_index < 0 ||
+      static_cast<std::size_t>(node_index) >= plan.nodes.size()) {
+    return tl::unexpected(make_error("node index out of range"));
+  }
+  if (plan.dependencies.size() != plan.nodes.size()) {
+    return tl::unexpected(make_error("plan dependencies not built"));
+  }
+  NodeSender deps = ex::just();
+  const auto &node_deps =
+      plan.dependencies[static_cast<std::size_t>(node_index)];
+  for (int producer : node_deps) {
+    if (producer < 0 ||
+        static_cast<std::size_t>(producer) >= plan.nodes.size()) {
+      return tl::unexpected(make_error("dependency index out of range"));
+    }
+    if (!factories[static_cast<std::size_t>(producer)]) {
+      return tl::unexpected(make_error("dependency sender not built"));
+    }
+    deps = NodeSender(
+        ex::when_all(std::move(deps), factories[producer]()));
+  }
+  return deps;
+}
+
+struct PlanSenderTemplate {
+  explicit PlanSenderTemplate(const ExecPlan &plan_ref) : plan(&plan_ref) {}
+
+  auto make_sender() const -> Expected<NodeSender> {
+    const std::size_t node_count = plan->nodes.size();
+    if (plan->topo_order.size() != node_count) {
+      return tl::unexpected(make_error("topo order mismatch"));
+    }
+    if (plan->dependencies.size() != node_count) {
+      return tl::unexpected(make_error("plan dependencies not built"));
+    }
+    if (plan->dependents.size() != node_count) {
+      return tl::unexpected(make_error("plan dependents not built"));
+    }
+    if (plan->sinks.empty()) {
+      return tl::unexpected(make_error("plan sinks not built"));
+    }
+
+    std::vector<NodeSenderFactory> factories(node_count);
+    std::vector<std::optional<NodeSender>> single_senders(node_count);
+
+    for (int node_index : plan->topo_order) {
+      auto deps_result =
+          build_dependency_sender(*plan, node_index, factories);
+      if (!deps_result) {
+        return tl::unexpected(deps_result.error());
+      }
+
+      auto node_sender =
+          ex::when_all(std::move(*deps_result), ex::read_env(get_run_state),
+                       ex::get_stop_token()) |
+          ex::let_value([node_index](SenderRunState *state, auto stop_token) {
+            state->note_enqueue(node_index);
+            auto work =
+                ex::schedule(state->pool->get_scheduler()) |
+                ex::then([state, node_index, stop_token]() {
+                  return state->execute_node(node_index, stop_token);
+                });
+            return ex::let_value(std::move(work),
+                                 [](Expected<void> result) -> NodeSender {
+                                   if (result) {
+                                     return NodeSender(ex::just());
+                                   }
+                                   return NodeSender(
+                                       ex::just_error(result.error()));
+                                 });
+          });
+
+      const std::size_t node_slot = static_cast<std::size_t>(node_index);
+      const std::size_t use_count = plan->nodes[node_slot].sender_use_count;
+      if (use_count == 0) {
+        return tl::unexpected(make_error("node sender use count missing"));
+      }
+      if (use_count <= 1) {
+        single_senders[node_slot] = std::move(node_sender);
+        factories[node_slot] =
+            [&single_senders, node_slot]() mutable -> NodeSender {
+          auto &slot = single_senders[node_slot];
+          if (!slot) {
+            return NodeSender(
+                ex::just_error(make_error("sender already consumed")));
+          }
+          NodeSender out = std::move(*slot);
+          slot.reset();
+          return out;
+        };
+      } else {
+        auto shared = ex::split(std::move(node_sender));
+        factories[node_slot] =
+            [shared]() mutable -> NodeSender { return NodeSender(shared); };
+      }
+    }
+
+    NodeSender all_nodes = ex::just();
+    for (int node_index : plan->sinks) {
+      const std::size_t node_slot = static_cast<std::size_t>(node_index);
+      if (!factories[node_slot]) {
+        return tl::unexpected(make_error("node sender not built"));
+      }
+      all_nodes = NodeSender(
+          ex::when_all(std::move(all_nodes), factories[node_slot]()));
+    }
+
+    return all_nodes;
+  }
+
+  const ExecPlan *plan = nullptr;
+};
+
+auto build_sender_template(const ExecPlan &plan)
+    -> Expected<std::shared_ptr<const PlanSenderTemplate>> {
+  if (plan.nodes.empty()) {
+    return tl::unexpected(make_error("plan has no nodes"));
+  }
+  if (plan.topo_order.size() != plan.nodes.size()) {
+    return tl::unexpected(make_error("topo order mismatch"));
+  }
+  if (plan.dependencies.size() != plan.nodes.size()) {
+    return tl::unexpected(make_error("plan dependencies not built"));
+  }
+  if (plan.dependents.size() != plan.nodes.size()) {
+    return tl::unexpected(make_error("plan dependents not built"));
+  }
+  if (plan.sinks.empty()) {
+    return tl::unexpected(make_error("plan sinks not built"));
+  }
+  for (const auto &node : plan.nodes) {
+    if (node.sender_use_count == 0) {
+      return tl::unexpected(make_error("node sender use count missing"));
+    }
+  }
+  return std::make_shared<PlanSenderTemplate>(plan);
 }
 
 } // namespace
@@ -396,38 +539,85 @@ Executor::Executor(ExecutorConfig config) {
 
 Executor::~Executor() = default;
 
-auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
-    -> Expected<ExecResult> {
-  auto runtime = std::make_shared<RuntimeContext>();
-  if (auto prepared = runtime->prepare(plan, ctx, pools_->pool); !prepared) {
+auto Executor::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
+                   RequestContext &ctx) const -> Expected<ExecResult> {
+  if (!snapshot) {
+    return tl::unexpected(make_error("snapshot is null"));
+  }
+  const ExecPlan &plan = snapshot->plan;
+  auto state = std::make_shared<SenderRunState>();
+  if (auto prepared = state->prepare(plan, ctx, pools_->pool); !prepared) {
     return tl::unexpected(prepared.error());
   }
 
-  runtime->schedule_initial_nodes();
-  runtime->done_latch.wait();
-
-  auto emit_run_end = [runtime](trace::SpanStatus status) {
+  auto emit_run_end = [state](trace::SpanStatus status) {
     if constexpr (trace::kTraceEnabled) {
-      auto *trace_ctx = runtime->trace;
-      if (!trace_ctx || runtime->trace_flags == 0) {
+      auto *trace_ctx = state->trace;
+      if (!trace_ctx || state->trace_flags == 0) {
         return;
       }
-      if (!trace::has_flag(runtime->trace_flags, trace::TraceFlag::RunSpan) ||
-          runtime->run_span == 0) {
+      if (!trace::has_flag(state->trace_flags, trace::TraceFlag::RunSpan) ||
+          state->run_span == 0) {
         return;
       }
       trace::Tick end_ts = trace_ctx->now();
       trace::Tick duration = 0;
-      if (runtime->run_start != 0 && end_ts >= runtime->run_start) {
-        duration = end_ts - runtime->run_start;
+      if (state->run_start != 0 && end_ts >= state->run_start) {
+        duration = end_ts - state->run_start;
       }
       trace::emit(trace_ctx->sink,
-                  trace::RunEnd{runtime->trace_id, runtime->run_span, end_ts,
+                  trace::RunEnd{state->trace_id, state->run_span, end_ts,
                                 duration, status});
     }
   };
 
-  if (runtime->has_error.load(std::memory_order_acquire)) {
+  auto sender_template =
+      snapshot->sender_template.load(std::memory_order_acquire);
+  if (!sender_template) {
+    auto built = build_sender_template(plan);
+    if (!built) {
+      emit_run_end(trace::SpanStatus::Error);
+      return tl::unexpected(built.error());
+    }
+    std::shared_ptr<const PlanSenderTemplate> expected;
+    if (!snapshot->sender_template.compare_exchange_strong(
+            expected, *built, std::memory_order_acq_rel)) {
+      sender_template =
+          snapshot->sender_template.load(std::memory_order_acquire);
+    } else {
+      sender_template = std::move(*built);
+    }
+  }
+
+  auto root_sender = sender_template->make_sender();
+  if (!root_sender) {
+    emit_run_end(trace::SpanStatus::Error);
+    return tl::unexpected(root_sender.error());
+  }
+
+  auto run_sender =
+      ex::write_env(std::move(*root_sender), RunEnv{state.get()});
+
+  try {
+    auto result = ex::sync_wait(std::move(run_sender));
+    if (!result) {
+      trace::SpanStatus status = trace::SpanStatus::Cancelled;
+      if (ctx.deadline_exceeded()) {
+        status = trace::SpanStatus::Deadline;
+      }
+      emit_run_end(status);
+      return tl::unexpected(make_error("execution stopped"));
+    }
+  } catch (const EngineError &err) {
+    state->record_error(err.message);
+  } catch (const std::exception &ex) {
+    state->record_error(
+        std::format("executor exception: {}", ex.what()));
+  } catch (...) {
+    state->record_error("executor exception: unknown");
+  }
+
+  if (state->has_error.load(std::memory_order_acquire)) {
     trace::SpanStatus status = trace::SpanStatus::Error;
     if (ctx.is_cancelled()) {
       status = trace::SpanStatus::Cancelled;
@@ -435,12 +625,12 @@ auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
       status = trace::SpanStatus::Deadline;
     }
     emit_run_end(status);
-    std::lock_guard<std::mutex> lock(runtime->error_mutex);
-    return tl::unexpected(runtime->error);
+    std::lock_guard<std::mutex> lock(state->error_mutex);
+    return tl::unexpected(state->error);
   }
 
   emit_run_end(trace::SpanStatus::Ok);
-  return collect_outputs(plan, runtime->slots);
+  return collect_outputs(plan, state->slots);
 }
 
 } // namespace sr::engine

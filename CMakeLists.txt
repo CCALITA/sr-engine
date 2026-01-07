@@ -12,6 +12,7 @@ add_library(sr_engine
   src/engine/plan.cpp
   src/engine/registry.cpp
   src/runtime/executor.cpp
+  src/runtime/executor_legacy.cpp
   src/runtime/runtime.cpp
   src/kernel/sample_kernels.cpp
 )
@@ -38,6 +39,12 @@ add_executable(sr_engine_complex_example
 )
 
 target_link_libraries(sr_engine_complex_example PRIVATE sr_engine)
+
+add_executable(sr_engine_benchmark
+  examples/benchmark_executor.cpp
+)
+
+target_link_libraries(sr_engine_benchmark PRIVATE sr_engine)
 
 enable_testing()
 

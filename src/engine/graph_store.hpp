@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -16,6 +17,8 @@
 
 namespace sr::engine {
 
+struct PlanSenderTemplate;
+
 /// Unique graph identifier (name + version).
 struct GraphKey {
   std::string name;
@@ -30,6 +33,7 @@ struct PlanSnapshot {
   std::string registry_fingerprint;
   std::string source;
   std::chrono::system_clock::time_point compiled_at;
+  mutable std::atomic<std::shared_ptr<const PlanSenderTemplate>> sender_template{nullptr};
 };
 
 /// Options for staging a graph into the store.

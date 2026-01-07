@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -32,6 +33,8 @@ struct CompiledNode {
   KernelHandle kernel;
   std::vector<InputBinding> inputs;
   std::vector<int> outputs;
+  /// Number of downstream consumers (>= 1, sinks count as 1) for sender planning.
+  std::size_t sender_use_count = 0;
 };
 
 /// Slot type description for execution storage.
@@ -61,8 +64,10 @@ struct ExecPlan {
   std::vector<ValueBox> const_slots;
   std::vector<EnvRequirement> env_requirements;
   std::vector<int> slot_producer;
+  std::vector<std::vector<int>> dependencies;
   std::vector<std::vector<int>> dependents;
   std::vector<int> pending_counts;
+  std::vector<int> sinks;
   std::vector<OutputSlot> outputs;
 };
 

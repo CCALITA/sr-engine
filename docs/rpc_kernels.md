@@ -73,6 +73,46 @@ Signature:
 
 Performs a deep copy round-trip to emulate a codec boundary.
 
+### `flatbuffer_echo_batch`
+
+Signature:
+
+- inputs: `std::vector<grpc::ByteBuffer>`
+- outputs: `std::vector<grpc::ByteBuffer>`
+
+Batched echo variant for scatter/gather pipelines.
+
+### `scatter_i64`
+
+Signature:
+
+- inputs: `int64`
+- outputs: `std::vector<grpc::ByteBuffer>`
+
+Params:
+
+- `parts` (int, default 2)
+
+Splits a value across `parts` and encodes each shard as a ByteBuffer with part
+index/count metadata.
+
+Example DSL:
+
+```
+{ "id": "scatter", "kernel": "scatter_i64",
+  "params": { "parts": 4 },
+  "inputs": ["value"], "outputs": ["payloads"] }
+```
+
+### `gather_i64_sum`
+
+Signature:
+
+- inputs: `std::vector<grpc::ByteBuffer>`
+- outputs: `int64`
+
+Decodes shard metadata, validates indices/count, and sums shard values.
+
 ### `rpc_unary_call`
 
 Signature:
@@ -92,3 +132,17 @@ Params:
 Non-OK gRPC status is surfaced as an engine error.
 
 Note: `rpc_unary_call` currently uses `grpc::InsecureChannelCredentials`.
+
+### `rpc_unary_call_batch`
+
+Signature:
+
+- inputs: `std::vector<grpc::ByteBuffer>`
+- outputs: `std::vector<grpc::ByteBuffer>`
+
+Params: same as `rpc_unary_call`.
+
+Calls the remote unary method once per payload and returns responses in order.
+
+See `docs/rpc_scatter_gather.md` for the scatter/gather pipeline and
+real-world test notes.

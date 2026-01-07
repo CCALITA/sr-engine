@@ -14,12 +14,28 @@ add_library(sr_engine
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
   src/kernel/sample_kernels.cpp
+  src/kernel/rpc_kernels.cpp
 )
 
 target_include_directories(sr_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdexec/include
 )
+
+option(SR_ENGINE_ENABLE_GRPC "Enable gRPC-based kernels." ON)
+
+if (SR_ENGINE_ENABLE_GRPC)
+  find_package(gRPC CONFIG QUIET)
+  if (gRPC_FOUND)
+    target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)
+    target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_GRPC=1)
+  else()
+    message(STATUS "gRPC not found; RPC kernels disabled.")
+    target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_GRPC=0)
+  endif()
+else()
+  target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_GRPC=0)
+endif()
 
 add_executable(sr_engine_example
   examples/simple.cpp
@@ -47,6 +63,7 @@ add_executable(sr_engine_tests
   tests/test_core.cpp
   tests/test_runtime.cpp
   tests/test_trace.cpp
+  tests/rpc_test.cpp
 )
 
 target_link_libraries(sr_engine_tests PRIVATE sr_engine)

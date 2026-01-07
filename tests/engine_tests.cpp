@@ -39,6 +39,9 @@ auto test_runtime_concurrency_stress() -> bool;
 auto test_dataflow_task_types() -> bool;
 auto test_dataflow_cancelled_request() -> bool;
 auto test_dataflow_deadline_exceeded() -> bool;
+auto test_rpc_flatbuffer_echo() -> bool;
+auto test_rpc_server_input() -> bool;
+auto test_rpc_server_output() -> bool;
 
 int main() {
   sr::kernel::register_builtin_types();
@@ -83,6 +86,9 @@ int main() {
            stats);
   run_test("dataflow_deadline_exceeded", test_dataflow_deadline_exceeded,
            stats);
+  run_test("rpc_flatbuffer_echo", test_rpc_flatbuffer_echo, stats);
+  run_test("rpc_server_input", test_rpc_server_input, stats);
+  run_test("rpc_server_output", test_rpc_server_output, stats);
 
   std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed
             << "\n";

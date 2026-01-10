@@ -135,6 +135,56 @@ auto test_env_binding() -> bool {
   return value == 13;
 }
 
+auto test_dsl_invalid_node_port() -> bool {
+  const char *dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "bad_port",
+    "nodes": [
+      { "id": "sum", "kernel": "add", "inputs": ["a", "b"], "outputs": ["sum"] }
+    ],
+    "bindings": [
+      { "to": "sum..a", "from": "$req.x" },
+      { "to": "sum.b", "from": "$req.y" }
+    ],
+    "outputs": [
+      { "from": "sum.sum", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  sr::engine::GraphDef graph;
+  std::string error;
+  if (parse_graph(dsl, graph, error)) {
+    std::cerr << "expected parse error for invalid node.port\n";
+    return false;
+  }
+  return !error.empty();
+}
+
+auto test_dsl_params_must_be_object() -> bool {
+  const char *dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "bad_params",
+    "nodes": [
+      { "id": "a", "kernel": "const_i64", "params": 3, "inputs": [], "outputs": ["value"] }
+    ],
+    "outputs": [
+      { "from": "a.value", "as": "out" }
+    ]
+  }
+  )JSON";
+
+  sr::engine::GraphDef graph;
+  std::string error;
+  if (parse_graph(dsl, graph, error)) {
+    std::cerr << "expected parse error for non-object params\n";
+    return false;
+  }
+  return !error.empty();
+}
+
 auto test_missing_required_input() -> bool {
   const char *dsl = R"JSON(
   {

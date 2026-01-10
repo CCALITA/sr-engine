@@ -15,6 +15,8 @@ auto run_test(const char *name, const std::function<bool()> &test,
 auto test_basic_pipeline() -> bool;
 auto test_missing_optional_input() -> bool;
 auto test_env_binding() -> bool;
+auto test_dsl_invalid_node_port() -> bool;
+auto test_dsl_params_must_be_object() -> bool;
 auto test_graph_store_versioning() -> bool;
 auto test_runtime_hot_swap() -> bool;
 auto test_runtime_hot_swap_concurrent() -> bool;
@@ -52,6 +54,8 @@ int main() {
   run_test("basic_pipeline", test_basic_pipeline, stats);
   run_test("missing_optional_input", test_missing_optional_input, stats);
   run_test("env_binding", test_env_binding, stats);
+  run_test("dsl_invalid_node_port", test_dsl_invalid_node_port, stats);
+  run_test("dsl_params_must_be_object", test_dsl_params_must_be_object, stats);
 
   run_test("graph_store_versioning", test_graph_store_versioning, stats);
   run_test("runtime_hot_swap", test_runtime_hot_swap, stats);

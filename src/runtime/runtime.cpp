@@ -310,7 +310,14 @@ auto Runtime::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
   return executor_.run(snapshot->plan, ctx);
 }
 
-auto Runtime::serve(ServeConfig config)
+auto Runtime::serve(ServeEndpointConfig config)
+    -> Expected<std::unique_ptr<ServeHost>> {
+  ServeLayerConfig layer;
+  layer.endpoints.push_back(std::move(config));
+  return ServeHost::create(*this, std::move(layer));
+}
+
+auto Runtime::serve(ServeLayerConfig config)
     -> Expected<std::unique_ptr<ServeHost>> {
   return ServeHost::create(*this, std::move(config));
 }

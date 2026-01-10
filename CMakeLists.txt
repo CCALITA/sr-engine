@@ -35,10 +35,8 @@ target_include_directories(sr_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdexec/include
 )
 
-option(SR_ENGINE_ENABLE_GRPC "Enable gRPC-based kernels." ON)
-if (NOT SR_ENGINE_ENABLE_GRPC)
-  message(FATAL_ERROR "SR_ENGINE_ENABLE_GRPC=OFF is not supported; gRPC is required.")
-endif()
+
+option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." ON)
 
 set(SR_ENGINE_BUNDLED_GRPC_DIR
   "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/grpc")
@@ -80,6 +78,19 @@ if (NOT TARGET gRPC::grpc)
 endif()
 target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)
 target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_GRPC=1)
+
+if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
+  find_package(ArrowFlight CONFIG REQUIRED)
+  target_sources(sr_engine PRIVATE src/kernel/flight_kernels.cpp)
+  if (TARGET ArrowFlight::arrow_flight_shared)
+    target_link_libraries(sr_engine PUBLIC ArrowFlight::arrow_flight_shared)
+  elseif (TARGET ArrowFlight::arrow_flight_static)
+    target_link_libraries(sr_engine PUBLIC ArrowFlight::arrow_flight_static)
+  else()
+    message(FATAL_ERROR "ArrowFlight target not found (expected arrow_flight_shared or arrow_flight_static)")
+  endif()
+  target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_ARROW_FLIGHT=1)
+endif()
 
 
 add_executable(sr_engine_example

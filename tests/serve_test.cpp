@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -49,8 +50,7 @@ struct UnaryCallResult {
 /// Perform a blocking unary call through a generic stub.
 auto perform_unary_call(grpc::GenericStub &stub, std::string_view method,
                         const grpc::ByteBuffer &request,
-                        std::chrono::milliseconds timeout)
-    -> UnaryCallResult {
+                        std::chrono::milliseconds timeout) -> UnaryCallResult {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   context.set_deadline(std::chrono::system_clock::now() + timeout);
@@ -78,15 +78,26 @@ auto perform_unary_call(grpc::GenericStub &stub, std::string_view method,
 
 } // namespace
 
+auto endpoint_snapshot(const sr::engine::ServeHost &host)
+    -> std::optional<sr::engine::ServeEndpointSnapshot> {
+  auto snapshots = host.stats();
+  if (snapshots.empty()) {
+    return std::nullopt;
+  }
+  return snapshots.front();
+}
+
 /// Validate serve configuration errors for missing required fields.
 auto test_serve_config_validation() -> bool {
   sr::engine::Runtime runtime;
   sr::kernel::register_sample_kernels(runtime.registry());
   sr::kernel::register_rpc_kernels(runtime.registry());
 
-  sr::engine::ServeConfig config;
+  sr::engine::ServeEndpointConfig config;
   config.graph_name = "";
-  config.address = "127.0.0.1:0";
+  sr::engine::GrpcServeConfig grpc_config;
+  grpc_config.address = "127.0.0.1:0";
+  config.transport = grpc_config;
   auto host = runtime.serve(config);
   if (host) {
     std::cerr << "expected missing graph_name error\n";
@@ -98,7 +109,8 @@ auto test_serve_config_validation() -> bool {
   }
 
   config.graph_name = "missing_graph";
-  config.address = "";
+  grpc_config.address = "";
+  config.transport = grpc_config;
   auto host_bad_address = runtime.serve(config);
   if (host_bad_address) {
     std::cerr << "expected missing address error\n";
@@ -144,12 +156,14 @@ auto test_serve_unary_echo() -> bool {
     return false;
   }
 
-  sr::engine::ServeConfig config;
+  sr::engine::ServeEndpointConfig config;
   config.graph_name = "serve_echo";
-  config.address = "127.0.0.1:0";
+  sr::engine::GrpcServeConfig grpc_config;
+  grpc_config.address = "127.0.0.1:0";
+  grpc_config.io_threads = 1;
+  config.transport = grpc_config;
   config.queue_capacity = 0;
   config.request_threads = 1;
-  config.io_threads = 1;
   config.max_inflight = 4;
 
   auto host = runtime.serve(config);
@@ -158,20 +172,24 @@ auto test_serve_unary_echo() -> bool {
     return false;
   }
 
-  const int port = (*host)->port();
+  auto snapshot2 = endpoint_snapshot(*(*host));
+  if (!snapshot2) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const int port = snapshot2->port;
   if (port <= 0) {
     std::cerr << "invalid serve port\n";
     return false;
   }
 
-  auto channel = grpc::CreateChannel(
-      std::format("127.0.0.1:{}", port),
-      grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(std::format("127.0.0.1:{}", port),
+                                     grpc::InsecureChannelCredentials());
   grpc::GenericStub stub(channel);
 
   const auto request = make_byte_buffer("hello");
-  auto result = perform_unary_call(
-      stub, "/sr.engine.Echo/Unary", request, std::chrono::seconds(2));
+  auto result = perform_unary_call(stub, "/sr.engine.Echo/Unary", request,
+                                   std::chrono::seconds(2));
   if (!result.status.ok()) {
     std::cerr << "rpc error: " << result.status.error_message() << " ("
               << static_cast<int>(result.status.error_code()) << ")\n";
@@ -184,7 +202,12 @@ auto test_serve_unary_echo() -> bool {
   }
 
   (*host)->wait();
-  auto stats = (*host)->stats();
+  auto snapshot1 = endpoint_snapshot(*(*host));
+  if (!snapshot1) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const auto stats = snapshot1->stats;
   if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 0 ||
       stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
     std::cerr << "unexpected stats\n";
@@ -202,12 +225,14 @@ auto test_serve_missing_graph() -> bool {
   sr::kernel::register_sample_kernels(runtime.registry());
   sr::kernel::register_rpc_kernels(runtime.registry());
 
-  sr::engine::ServeConfig config;
+  sr::engine::ServeEndpointConfig config;
   config.graph_name = "missing_graph";
-  config.address = "127.0.0.1:0";
+  sr::engine::GrpcServeConfig grpc_config;
+  grpc_config.address = "127.0.0.1:0";
+  grpc_config.io_threads = 1;
+  config.transport = grpc_config;
   config.queue_capacity = 0;
   config.request_threads = 1;
-  config.io_threads = 1;
   config.max_inflight = 2;
 
   auto host = runtime.serve(config);
@@ -216,20 +241,24 @@ auto test_serve_missing_graph() -> bool {
     return false;
   }
 
-  const int port = (*host)->port();
+  auto snapshot = endpoint_snapshot(*(*host));
+  if (!snapshot) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const int port = snapshot->port;
   if (port <= 0) {
     std::cerr << "invalid serve port\n";
     return false;
   }
 
-  auto channel = grpc::CreateChannel(
-      std::format("127.0.0.1:{}", port),
-      grpc::InsecureChannelCredentials());
+  auto channel = grpc::CreateChannel(std::format("127.0.0.1:{}", port),
+                                     grpc::InsecureChannelCredentials());
   grpc::GenericStub stub(channel);
 
-  auto result = perform_unary_call(
-      stub, "/sr.engine.Missing/Unary", make_byte_buffer("ping"),
-      std::chrono::seconds(2));
+  auto result =
+      perform_unary_call(stub, "/sr.engine.Missing/Unary",
+                         make_byte_buffer("ping"), std::chrono::seconds(2));
   if (result.status.error_code() != grpc::StatusCode::NOT_FOUND) {
     std::cerr << "expected NOT_FOUND, got "
               << static_cast<int>(result.status.error_code()) << "\n";
@@ -237,11 +266,127 @@ auto test_serve_missing_graph() -> bool {
   }
 
   (*host)->wait();
-  auto stats = (*host)->stats();
+  snapshot = endpoint_snapshot(*(*host));
+  if (!snapshot) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const auto stats = snapshot->stats;
   if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 1 ||
       stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
     std::cerr << "unexpected stats for missing graph\n";
     return false;
+  }
+
+  (*host)->shutdown();
+  (*host)->wait();
+  return true;
+}
+
+/// Verify multiple gRPC endpoints can run concurrently.
+auto test_serve_multi_endpoint() -> bool {
+  const char *dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "serve_echo_multi",
+    "nodes": [
+      { "id": "in", "kernel": "rpc_server_input", "inputs": ["call"], "outputs": ["method", "payload", "metadata"] },
+      { "id": "out", "kernel": "rpc_server_output", "inputs": ["call", "payload"], "outputs": [] }
+    ],
+    "bindings": [
+      { "to": "in.call", "from": "$req.rpc.call" },
+      { "to": "out.call", "from": "$req.rpc.call" },
+      { "to": "out.payload", "from": "in.payload" }
+    ],
+    "outputs": []
+  }
+  )JSON";
+
+  sr::engine::Runtime runtime;
+  sr::kernel::register_sample_kernels(runtime.registry());
+  sr::kernel::register_rpc_kernels(runtime.registry());
+
+  sr::engine::StageOptions options;
+  options.publish = true;
+  auto snapshot = runtime.stage_dsl(dsl, options);
+  if (!snapshot) {
+    std::cerr << "stage error: " << snapshot.error().message << "\n";
+    return false;
+  }
+
+  sr::engine::ServeEndpointConfig endpoint_a;
+  endpoint_a.graph_name = "serve_echo_multi";
+  sr::engine::GrpcServeConfig grpc_a;
+  grpc_a.address = "127.0.0.1:0";
+  grpc_a.io_threads = 1;
+  endpoint_a.transport = grpc_a;
+  endpoint_a.queue_capacity = 0;
+  endpoint_a.request_threads = 1;
+
+  sr::engine::ServeEndpointConfig endpoint_b;
+  endpoint_b.graph_name = "serve_echo_multi";
+  sr::engine::GrpcServeConfig grpc_b;
+  grpc_b.address = "127.0.0.1:0";
+  grpc_b.io_threads = 1;
+  endpoint_b.transport = grpc_b;
+  endpoint_b.queue_capacity = 0;
+  endpoint_b.request_threads = 1;
+
+  sr::engine::ServeLayerConfig layer;
+  layer.endpoints.push_back(endpoint_a);
+  layer.endpoints.push_back(endpoint_b);
+
+  auto host = runtime.serve(layer);
+  if (!host) {
+    std::cerr << "serve error: " << host.error().message << "\n";
+    return false;
+  }
+
+  auto snapshots = (*host)->stats();
+  if (snapshots.size() != 2) {
+    std::cerr << "expected 2 endpoints, got " << snapshots.size() << "\n";
+    return false;
+  }
+
+  std::vector<int> ports;
+  ports.reserve(snapshots.size());
+  for (const auto &snapshot : snapshots) {
+    if (snapshot.port <= 0) {
+      std::cerr << "invalid endpoint port\n";
+      return false;
+    }
+    ports.push_back(snapshot.port);
+  }
+
+  const auto request = make_byte_buffer("hello");
+  for (int port : ports) {
+    auto channel = grpc::CreateChannel(std::format("127.0.0.1:{}", port),
+                                       grpc::InsecureChannelCredentials());
+    grpc::GenericStub stub(channel);
+
+    auto result = perform_unary_call(stub, "/sr.engine.Echo/Unary", request,
+                                     std::chrono::seconds(2));
+    if (!result.status.ok()) {
+      std::cerr << "rpc error: " << result.status.error_message() << " ("
+                << static_cast<int>(result.status.error_code()) << ")\n";
+      return false;
+    }
+    const auto response = byte_buffer_to_string(result.response);
+    if (response != "hello") {
+      std::cerr << "unexpected response: " << response << "\n";
+      return false;
+    }
+  }
+
+  (*host)->wait();
+  snapshots = (*host)->stats();
+  for (const auto &snapshot : snapshots) {
+    const auto &stats = snapshot.stats;
+    if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 0 ||
+        stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
+      std::cerr << "unexpected stats for endpoint " << snapshot.name << "\n";
+      return false;
+    }
   }
 
   (*host)->shutdown();

@@ -53,25 +53,51 @@ Notes:
 - `RequestContext.env` is snapshotted per run; kernels cannot mutate env during execution.
 - All node inputs must be bound in the DSL; missing inputs are compile errors.
 
-## Serve Layer (gRPC Unary)
+## Serve Layer (Multi-Transport)
 
-Use `ServeHost` to run a long-lived unary gRPC server that executes a graph per
-request:
+Use `ServeHost` to run one or more serve endpoints (gRPC unary or Arrow Flight)
+that execute a graph per request:
 
 ```
 sr::engine::Runtime runtime;
 sr::kernel::register_sample_kernels(runtime.registry());
 sr::kernel::register_rpc_kernels(runtime.registry());
 
-sr::engine::ServeConfig config;
-config.graph_name = "rpc_graph";
-config.address = "0.0.0.0:50051";
+sr::engine::ServeEndpointConfig endpoint;
+endpoint.graph_name = "rpc_graph";
+sr::engine::GrpcServeConfig grpc;
+grpc.address = "0.0.0.0:50051";
+endpoint.transport = grpc;
 
-auto host = runtime.serve(config);
+auto host = runtime.serve(endpoint);
 ```
 
-See `docs/serve_layer.md` for request env keys, backpressure, and lifecycle
-details.
+To run multiple endpoints:
+
+```
+sr::engine::ServeLayerConfig layer;
+layer.endpoints.push_back(endpoint);
+layer.endpoints.push_back(another_endpoint);
+
+auto host = runtime.serve(layer);
+```
+
+Arrow Flight endpoints require `SR_ENGINE_ENABLE_ARROW_FLIGHT=ON` and a Flight
+config:
+
+```
+sr::engine::ServeEndpointConfig flight_endpoint;
+flight_endpoint.graph_name = "flight_graph";
+sr::engine::FlightServeConfig flight;
+flight.location = "grpc+tcp://0.0.0.0:8815";
+flight_endpoint.transport = flight;
+
+sr::kernel::register_flight_kernels(runtime.registry());
+auto host = runtime.serve(flight_endpoint);
+```
+
+See `docs/serve_layer.md` for request env keys, transport details, backpressure,
+and lifecycle details.
 
 ## Thread Safety Contract
 - `GraphStore` is safe to call from multiple threads.

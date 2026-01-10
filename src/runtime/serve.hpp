@@ -6,6 +6,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
 
 #include "engine/error.hpp"
 #include "engine/trace.hpp"
@@ -24,16 +27,35 @@ struct ServeStats {
   std::uint64_t queued = 0;
 };
 
-/// Configuration for the unary gRPC serve layer.
-struct ServeConfig {
-  /// Graph name to execute for each request.
-  std::string graph_name;
-  /// Optional pinned version (unset uses the active version).
-  std::optional<int> graph_version;
+/// Transport configuration for a unary gRPC endpoint.
+struct GrpcServeConfig {
   /// gRPC listen address.
   std::string address = "0.0.0.0:50051";
   /// gRPC CQ worker count (<=0 uses 1).
   int io_threads = 1;
+};
+
+/// Transport configuration for an Arrow Flight endpoint.
+struct FlightServeConfig {
+  /// Flight server location (grpc+tcp://host:port).
+  std::string location = "grpc+tcp://0.0.0.0:8815";
+  /// Flight worker thread count (<=0 uses 1).
+  int io_threads = 1;
+};
+
+/// Transport selector for a serve endpoint.
+using ServeTransportConfig = std::variant<GrpcServeConfig, FlightServeConfig>;
+
+/// Configuration for a single serve endpoint.
+struct ServeEndpointConfig {
+  /// Human-readable endpoint name (auto-filled when empty).
+  std::string name;
+  /// Graph name to execute for each request.
+  std::string graph_name;
+  /// Optional pinned version (unset uses the active version).
+  std::optional<int> graph_version;
+  /// Transport config (gRPC unary or Arrow Flight).
+  ServeTransportConfig transport = GrpcServeConfig{};
   /// Queue dispatcher threads (<=0 uses 1).
   int dispatch_threads = 1;
   /// Request scheduler threads (<=0 uses hardware concurrency).
@@ -42,7 +64,7 @@ struct ServeConfig {
   int max_inflight = 1024;
   /// Pending queue capacity (0 disables the queue).
   std::size_t queue_capacity = 1024;
-  /// Default request timeout when gRPC deadlines are unset.
+  /// Default request timeout when deadlines are unset.
   std::optional<std::chrono::milliseconds> default_deadline;
   /// Graceful shutdown timeout for draining requests.
   std::chrono::milliseconds shutdown_timeout{std::chrono::seconds(5)};
@@ -58,12 +80,26 @@ struct ServeConfig {
       trace::to_flags(trace::TraceFlag::NodeSpan);
 };
 
-/// Long-lived gRPC server that runs a graph per unary request.
+/// Configuration for a multi-endpoint serve layer.
+struct ServeLayerConfig {
+  std::vector<ServeEndpointConfig> endpoints;
+};
+
+/// Snapshot of a serve endpoint and its counters.
+struct ServeEndpointSnapshot {
+  std::string name;
+  std::string transport;
+  int port = 0;
+  bool running = false;
+  ServeStats stats;
+};
+
+/// Long-lived serve layer that hosts one or more endpoints.
 class ServeHost {
 public:
   /// Create and start a ServeHost bound to the provided runtime.
   /// The runtime must outlive the ServeHost instance.
-  static auto create(Runtime& runtime, ServeConfig config)
+  static auto create(Runtime& runtime, ServeLayerConfig config)
       -> Expected<std::unique_ptr<ServeHost>>;
 
   ServeHost(const ServeHost&) = delete;
@@ -75,17 +111,15 @@ public:
   auto shutdown() -> void;
   /// Block until all in-flight requests have completed.
   auto wait() -> void;
-  /// Return a snapshot of current serve-layer counters.
-  auto stats() const -> ServeStats;
-  /// Return the bound server port (0 if not started).
-  auto port() const -> int;
-  /// Return true while the server is running.
+  /// Return snapshots for all endpoints.
+  auto stats() const -> std::vector<ServeEndpointSnapshot>;
+  /// Return true while every endpoint is running.
   auto running() const -> bool;
 
   ~ServeHost();
 
 private:
-  explicit ServeHost(Runtime& runtime, ServeConfig config);
+  explicit ServeHost(Runtime& runtime, ServeLayerConfig config);
   auto start() -> Expected<void>;
 
   struct State;

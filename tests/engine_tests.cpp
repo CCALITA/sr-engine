@@ -47,6 +47,7 @@ auto test_rpc_server_output() -> bool;
 auto test_serve_config_validation() -> bool;
 auto test_serve_unary_echo() -> bool;
 auto test_serve_missing_graph() -> bool;
+auto test_serve_multi_endpoint() -> bool;
 
 int main() {
   sr::kernel::register_builtin_types();
@@ -99,6 +100,7 @@ int main() {
   run_test("serve_config_validation", test_serve_config_validation, stats);
   run_test("serve_unary_echo", test_serve_unary_echo, stats);
   run_test("serve_missing_graph", test_serve_missing_graph, stats);
+  run_test("serve_multi_endpoint", test_serve_multi_endpoint, stats);
 
   std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed
             << "\n";

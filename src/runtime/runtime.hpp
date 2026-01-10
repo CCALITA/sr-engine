@@ -88,8 +88,10 @@ public:
   auto run(const std::shared_ptr<const PlanSnapshot> &snapshot,
            RequestContext &ctx) const -> Expected<ExecResult>;
 
-  /// Start a unary gRPC serve host for the selected graph.
-  auto serve(ServeConfig config) -> Expected<std::unique_ptr<ServeHost>>;
+  /// Start a serve host for a single endpoint.
+  auto serve(ServeEndpointConfig config) -> Expected<std::unique_ptr<ServeHost>>;
+  /// Start a serve host for multiple endpoints.
+  auto serve(ServeLayerConfig config) -> Expected<std::unique_ptr<ServeHost>>;
 
 private:
   class GraphDaemon;

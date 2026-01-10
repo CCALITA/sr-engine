@@ -6,14 +6,10 @@
 
 #include "engine/registry.hpp"
 
-#if SR_ENGINE_WITH_GRPC
 #include <grpcpp/generic/generic_stub.h>
 #include <grpcpp/grpcpp.h>
-#endif
 
 namespace sr::kernel::rpc {
-
-#if SR_ENGINE_WITH_GRPC
 
 /// Key/value metadata entry used for RPC headers and trailers.
 struct RpcMetadataEntry {
@@ -57,26 +53,13 @@ struct RpcServerCall {
   std::shared_ptr<RpcResponder> responder;
 };
 
-#endif // SR_ENGINE_WITH_GRPC
-
 } // namespace sr::kernel::rpc
 
 namespace sr::kernel {
-
-#if SR_ENGINE_WITH_GRPC
 
 /// Register gRPC value types used by rpc kernels.
 auto register_rpc_types() -> void;
 
 /// Register rpc input/output/codec kernels into a registry.
 auto register_rpc_kernels(sr::engine::KernelRegistry &registry) -> void;
-
-#else
-
-/// No-op stubs when gRPC is disabled.
-inline auto register_rpc_types() -> void {}
-inline auto register_rpc_kernels(sr::engine::KernelRegistry &) -> void {}
-
-#endif
-
 } // namespace sr::kernel

@@ -1,12 +1,11 @@
 #include "kernel/rpc_kernels.hpp"
-
-#if SR_ENGINE_WITH_GRPC
+#include "engine/error.hpp"
 
 #include <bit>
 #include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <condition_variable>
 #include <cstdlib>
 #include <format>
 #include <mutex>
@@ -163,9 +162,8 @@ auto read_u64_le(const unsigned char *data) -> std::uint64_t {
 }
 
 /// Encode a shard header into a ByteBuffer payload.
-auto encode_shard_payload(std::uint32_t part_index,
-                          std::uint32_t part_count, std::int64_t value)
-    -> grpc::ByteBuffer {
+auto encode_shard_payload(std::uint32_t part_index, std::uint32_t part_count,
+                          std::int64_t value) -> grpc::ByteBuffer {
   std::string data;
   data.reserve(kShardHeaderSize);
   append_u32_le(data, part_index);
@@ -186,11 +184,9 @@ auto decode_shard_payload(const grpc::ByteBuffer &buffer)
     -> Expected<DecodedShard> {
   const auto data = byte_buffer_to_string(buffer);
   if (data.size() < kShardHeaderSize) {
-    return tl::unexpected(
-        sr::engine::make_error("shard payload too small"));
+    return tl::unexpected(sr::engine::make_error("shard payload too small"));
   }
-  const auto *bytes =
-      reinterpret_cast<const unsigned char *>(data.data());
+  const auto *bytes = reinterpret_cast<const unsigned char *>(data.data());
   DecodedShard decoded;
   decoded.index = read_u32_le(bytes);
   decoded.count = read_u32_le(bytes + sizeof(std::uint32_t));
@@ -211,8 +207,7 @@ auto split_i64_even(std::int64_t value, std::uint32_t parts)
   const auto div = std::div(value, divisor);
   const auto base = div.quot;
   const auto rem = div.rem;
-  const auto rem_count =
-      static_cast<std::uint32_t>(rem >= 0 ? rem : -rem);
+  const auto rem_count = static_cast<std::uint32_t>(rem >= 0 ? rem : -rem);
   const auto sign = rem >= 0 ? 1 : -1;
   for (std::uint32_t i = 0; i < parts; ++i) {
     out[i] = base + (i < rem_count ? sign : 0);
@@ -221,8 +216,7 @@ auto split_i64_even(std::int64_t value, std::uint32_t parts)
 }
 
 /// Perform a unary RPC call using grpc::GenericStub.
-auto perform_unary_call(grpc::GenericStub &stub,
-                        const std::string &method,
+auto perform_unary_call(grpc::GenericStub &stub, const std::string &method,
                         const rpc::RpcMetadata &metadata,
                         std::chrono::milliseconds timeout, bool wait_for_ready,
                         const std::string &authority,
@@ -260,9 +254,9 @@ auto perform_unary_call(grpc::GenericStub &stub,
   }
 
   if (!status.ok()) {
-    return tl::unexpected(sr::engine::make_error(std::format(
-        "rpc call failed: {} ({})", status.error_message(),
-        static_cast<int>(status.error_code()))));
+    return tl::unexpected(sr::engine::make_error(
+        std::format("rpc call failed: {} ({})", status.error_message(),
+                    static_cast<int>(status.error_code()))));
   }
 
   return response;
@@ -301,8 +295,8 @@ struct UnaryCallKernel {
       return tl::unexpected(
           sr::engine::make_error("rpc_unary_call missing stub"));
     }
-    return perform_unary_call(*stub, method, metadata, timeout,
-                              wait_for_ready, authority, request);
+    return perform_unary_call(*stub, method, metadata, timeout, wait_for_ready,
+                              authority, request);
   }
 };
 
@@ -382,25 +376,24 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         return out;
       });
 
-  registry.register_kernel_with_params(
-      "scatter_i64", [](const Json &params) {
-        const auto parts = get_int_param(params, "parts", 2);
-        return [parts](std::int64_t value) noexcept
-                   -> Expected<std::vector<grpc::ByteBuffer>> {
-          if (parts <= 0) {
-            return tl::unexpected(sr::engine::make_error(
-                "scatter_i64 requires parts > 0"));
-          }
-          const auto count = static_cast<std::uint32_t>(parts);
-          const auto splits = split_i64_even(value, count);
-          std::vector<grpc::ByteBuffer> shards;
-          shards.reserve(count);
-          for (std::uint32_t i = 0; i < count; ++i) {
-            shards.push_back(encode_shard_payload(i, count, splits[i]));
-          }
-          return shards;
-        };
-      });
+  registry.register_kernel_with_params("scatter_i64", [](const Json &params) {
+    const auto parts = get_int_param(params, "parts", 2);
+    return [parts](std::int64_t value) noexcept
+               -> Expected<std::vector<grpc::ByteBuffer>> {
+      if (parts <= 0) {
+        return tl::unexpected(
+            sr::engine::make_error("scatter_i64 requires parts > 0"));
+      }
+      const auto count = static_cast<std::uint32_t>(parts);
+      const auto splits = split_i64_even(value, count);
+      std::vector<grpc::ByteBuffer> shards;
+      shards.reserve(count);
+      for (std::uint32_t i = 0; i < count; ++i) {
+        shards.push_back(encode_shard_payload(i, count, splits[i]));
+      }
+      return shards;
+    };
+  });
 
   registry.register_kernel(
       "gather_i64_sum",
@@ -420,23 +413,23 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
           }
           if (!expected_count) {
             if (decoded->count == 0) {
-              return tl::unexpected(sr::engine::make_error(
-                  "gather_i64_sum shard count is zero"));
+              return tl::unexpected(
+                  sr::engine::make_error("gather_i64_sum shard count is zero"));
             }
             expected_count = decoded->count;
             seen.assign(*expected_count, false);
           }
           if (decoded->count != *expected_count) {
-            return tl::unexpected(sr::engine::make_error(
-                "gather_i64_sum shard count mismatch"));
+            return tl::unexpected(
+                sr::engine::make_error("gather_i64_sum shard count mismatch"));
           }
           if (decoded->index >= *expected_count) {
             return tl::unexpected(sr::engine::make_error(
                 "gather_i64_sum shard index out of range"));
           }
           if (seen[decoded->index]) {
-            return tl::unexpected(sr::engine::make_error(
-                "gather_i64_sum duplicate shard index"));
+            return tl::unexpected(
+                sr::engine::make_error("gather_i64_sum duplicate shard index"));
           }
           seen[decoded->index] = true;
           sum += decoded->value;
@@ -447,8 +440,8 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         }
         for (bool present : seen) {
           if (!present) {
-            return tl::unexpected(sr::engine::make_error(
-                "gather_i64_sum missing shard"));
+            return tl::unexpected(
+                sr::engine::make_error("gather_i64_sum missing shard"));
           }
         }
         return sum;
@@ -498,12 +491,12 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         const auto target = get_string_param(params, "target", "");
         const auto method = get_string_param(params, "method", "");
         if (target.empty()) {
-          return tl::unexpected(sr::engine::make_error(
-              "rpc_unary_call_batch missing target"));
+          return tl::unexpected(
+              sr::engine::make_error("rpc_unary_call_batch missing target"));
         }
         if (method.empty()) {
-          return tl::unexpected(sr::engine::make_error(
-              "rpc_unary_call_batch missing method"));
+          return tl::unexpected(
+              sr::engine::make_error("rpc_unary_call_batch missing method"));
         }
         const auto timeout_ms = get_int_param(params, "timeout_ms", 0);
         const auto wait_for_ready =
@@ -525,5 +518,3 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
 }
 
 } // namespace sr::kernel
-
-#endif // SR_ENGINE_WITH_GRPC

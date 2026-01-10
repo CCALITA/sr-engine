@@ -35,11 +35,10 @@ class Runtime::GraphDaemon {
 public:
   GraphDaemon(Runtime &runtime, std::filesystem::path root,
               std::chrono::milliseconds poll_interval, std::string extension,
-              bool recursive, bool publish, bool allow_replace)
+              bool recursive, bool allow_replace)
       : runtime_(runtime), root_(std::move(root)),
         poll_interval_(poll_interval), extension_(std::move(extension)),
-        recursive_(recursive), publish_(publish),
-        allow_replace_(allow_replace) {
+        recursive_(recursive), allow_replace_(allow_replace) {
     start();
   }
 
@@ -134,7 +133,6 @@ private:
       }
       StageOptions options;
       options.source = path_string;
-      options.publish = publish_;
       options.allow_replace = allow_replace_;
       auto staged = runtime_.stage_file(path_string, options);
       GraphFileState state{last_write, !staged};
@@ -187,7 +185,6 @@ private:
   std::chrono::milliseconds poll_interval_;
   std::string extension_;
   bool recursive_ = false;
-  bool publish_ = true;
   bool allow_replace_ = true;
   std::atomic<bool> running_{false};
   bool stop_requested_ = false;
@@ -203,7 +200,7 @@ Runtime::Runtime(RuntimeConfig config)
   if (config.graph_root && !config.graph_root->empty()) {
     daemon_ = std::make_unique<GraphDaemon>(
         *this, *config.graph_root, config.graph_poll_interval,
-        config.graph_extension, config.graph_recursive, config.graph_publish,
+        config.graph_extension, config.graph_recursive,
         config.graph_allow_replace);
   }
 }
@@ -311,6 +308,11 @@ auto Runtime::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
     return tl::unexpected(make_error("snapshot is null"));
   }
   return executor_.run(snapshot->plan, ctx);
+}
+
+auto Runtime::serve(ServeConfig config)
+    -> Expected<std::unique_ptr<ServeHost>> {
+  return ServeHost::create(*this, std::move(config));
 }
 
 } // namespace sr::engine

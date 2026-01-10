@@ -73,6 +73,17 @@ auto register_sample_kernels(KernelRegistry &registry) -> void {
 
   registry.register_kernel("eq_i64", [](int64_t a, int64_t b) noexcept { return a == b; });
 
+  registry.register_kernel(
+      "eq_str", [](const std::string& a, const std::string& b) noexcept {
+        return a == b;
+      });
+
+  registry.register_kernel(
+      "starts_with_str",
+      [](const std::string& text, const std::string& prefix) noexcept {
+        return text.rfind(prefix, 0) == 0;
+      });
+
   registry.register_kernel("not_bool", [](bool value) noexcept { return !value; });
 
   registry.register_kernel("and_bool", [](bool a, bool b) noexcept { return a && b; });

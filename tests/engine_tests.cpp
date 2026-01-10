@@ -44,8 +44,9 @@ auto test_dataflow_deadline_exceeded() -> bool;
 auto test_rpc_flatbuffer_echo() -> bool;
 auto test_rpc_server_input() -> bool;
 auto test_rpc_server_output() -> bool;
-auto test_rpc_scatter_gather() -> bool;
-auto test_rpc_scatter_gather_remote() -> bool;
+auto test_serve_config_validation() -> bool;
+auto test_serve_unary_echo() -> bool;
+auto test_serve_missing_graph() -> bool;
 
 int main() {
   sr::kernel::register_builtin_types();
@@ -75,8 +76,8 @@ int main() {
   run_test("trace_parallel_runs", test_trace_parallel_runs, stats);
   run_test("runtime_concurrent_same_graph", test_runtime_concurrent_same_graph,
            stats);
-  run_test("runtime_concurrent_multi_graph", test_runtime_concurrent_multi_graph,
-           stats);
+  run_test("runtime_concurrent_multi_graph",
+           test_runtime_concurrent_multi_graph, stats);
   run_test("runtime_concurrent_multi_graph_req_bind",
            test_runtime_concurrent_multi_graph_req_bind, stats);
   run_test("runtime_concurrent_error_isolation",
@@ -95,8 +96,9 @@ int main() {
   run_test("rpc_flatbuffer_echo", test_rpc_flatbuffer_echo, stats);
   run_test("rpc_server_input", test_rpc_server_input, stats);
   run_test("rpc_server_output", test_rpc_server_output, stats);
-  run_test("rpc_scatter_gather", test_rpc_scatter_gather, stats);
-  run_test("rpc_scatter_gather_remote", test_rpc_scatter_gather_remote, stats);
+  run_test("serve_config_validation", test_serve_config_validation, stats);
+  run_test("serve_unary_echo", test_serve_unary_echo, stats);
+  run_test("serve_missing_graph", test_serve_missing_graph, stats);
 
   std::cout << "Passed: " << stats.passed << ", Failed: " << stats.failed
             << "\n";

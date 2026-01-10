@@ -40,7 +40,7 @@ config.graph_root = "graphs/";
 config.graph_poll_interval = std::chrono::seconds(60);
 config.graph_extension = ".json";
 config.graph_recursive = false;
-config.graph_publish = true;
+
 config.graph_allow_replace = true;
 sr::engine::Runtime runtime(config);
 ```
@@ -52,6 +52,26 @@ Notes:
 - Kernel callables must be `noexcept`; use `Expected` for recoverable errors.
 - `RequestContext.env` is snapshotted per run; kernels cannot mutate env during execution.
 - All node inputs must be bound in the DSL; missing inputs are compile errors.
+
+## Serve Layer (gRPC Unary)
+
+Use `ServeHost` to run a long-lived unary gRPC server that executes a graph per
+request:
+
+```
+sr::engine::Runtime runtime;
+sr::kernel::register_sample_kernels(runtime.registry());
+sr::kernel::register_rpc_kernels(runtime.registry());
+
+sr::engine::ServeConfig config;
+config.graph_name = "rpc_graph";
+config.address = "0.0.0.0:50051";
+
+auto host = runtime.serve(config);
+```
+
+See `docs/serve_layer.md` for request env keys, backpressure, and lifecycle
+details.
 
 ## Thread Safety Contract
 - `GraphStore` is safe to call from multiple threads.

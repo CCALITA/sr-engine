@@ -1,23 +1,21 @@
 # RPC Kernels (gRPC Generic API)
 
 This module provides core RPC nodes built on `grpc::GenericStub` and
-`grpc::ByteBuffer`. It is optional and compiles only when gRPC is available.
+`grpc::ByteBuffer`. It is required by the serve layer and assumes gRPC is
+available at build time.
 
 ## Build
 
-Enable in CMake (default ON):
+gRPC is required by default:
 
 ```
-cmake -S . -B build -DSR_ENGINE_ENABLE_GRPC=ON
+cmake -S . -B build
 ```
-
-If gRPC is not found, the kernels are disabled and `SR_ENGINE_WITH_GRPC` is set
-to 0.
 
 ## Types
 
 `sr::kernel::rpc::RpcServerCall` carries per-request data injected via
-`RequestContext.env`:
+`RequestContext.env` (see `docs/serve_layer.md`):
 
 - `method`: full RPC method string.
 - `request`: `grpc::ByteBuffer` with the request payload.
@@ -41,7 +39,7 @@ Example DSL:
   "inputs": ["call"], "outputs": ["method", "payload", "meta"] }
 ```
 
-Bind the `call` input from `$req.call`.
+Bind the `call` input from `$req.rpc.call`.
 
 ### `rpc_server_output`
 

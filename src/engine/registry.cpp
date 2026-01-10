@@ -2,12 +2,13 @@
 
 namespace sr::engine {
 
-KernelRegistry::KernelRegistry(KernelRegistry&& other) noexcept {
+KernelRegistry::KernelRegistry(KernelRegistry &&other) noexcept {
   std::unique_lock<std::shared_mutex> lock(other.mutex_);
   factories_ = std::move(other.factories_);
 }
 
-auto KernelRegistry::operator=(KernelRegistry&& other) noexcept -> KernelRegistry& {
+auto KernelRegistry::operator=(KernelRegistry &&other) noexcept
+    -> KernelRegistry & {
   if (this == &other) {
     return *this;
   }
@@ -16,12 +17,14 @@ auto KernelRegistry::operator=(KernelRegistry&& other) noexcept -> KernelRegistr
   return *this;
 }
 
-auto KernelRegistry::register_factory(std::string name, Factory factory) -> void {
+auto KernelRegistry::register_factory(std::string name, Factory factory)
+    -> void {
   std::unique_lock<std::shared_mutex> lock(mutex_);
   factories_[std::move(name)] = std::make_shared<Factory>(std::move(factory));
 }
 
-auto KernelRegistry::find(std::string_view name) const -> std::shared_ptr<const Factory> {
+auto KernelRegistry::find(std::string_view name) const
+    -> std::shared_ptr<const Factory> {
   std::shared_lock<std::shared_mutex> lock(mutex_);
   auto it = factories_.find(std::string(name));
   if (it == factories_.end()) {
@@ -30,4 +33,4 @@ auto KernelRegistry::find(std::string_view name) const -> std::shared_ptr<const 
   return it->second;
 }
 
-}  // namespace sr::engine
+} // namespace sr::engine

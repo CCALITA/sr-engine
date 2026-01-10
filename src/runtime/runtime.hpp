@@ -13,6 +13,7 @@
 #include "engine/graph_store.hpp"
 #include "engine/registry.hpp"
 #include "runtime/executor.hpp"
+#include "runtime/serve.hpp"
 
 namespace sr::engine {
 
@@ -30,45 +31,46 @@ struct RuntimeConfig {
   std::string graph_extension = ".json";
   /// When true, scan subdirectories under graph_root.
   bool graph_recursive = false;
-  /// When true, publish staged graphs as the active version.
-  bool graph_publish = true;
   /// When true, allow replacing an existing version with a new hash.
   bool graph_allow_replace = true;
 };
 
 /// High-level facade that owns the registry, graph store, and executor.
 class Runtime {
- public:
-  /// Construct with runtime config (spawns graph daemon when graph_root is set).
+public:
+  /// Construct with runtime config (spawns graph daemon when graph_root is
+  /// set).
   explicit Runtime(RuntimeConfig config = {});
   /// Stops background daemon and releases resources.
   ~Runtime();
 
   /// Access the kernel registry to register kernel factories.
-  auto registry() -> KernelRegistry&;
+  auto registry() -> KernelRegistry &;
   /// Const access to the kernel registry.
-  auto registry() const -> const KernelRegistry&;
+  auto registry() const -> const KernelRegistry &;
 
   /// Stage a parsed graph and optionally publish it.
-  auto stage_graph(const GraphDef& graph, const StageOptions& options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+  auto stage_graph(const GraphDef &graph, const StageOptions &options = {})
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Stage a graph from JSON and optionally publish it.
-  auto stage_json(const Json& json, const StageOptions& options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+  auto stage_json(const Json &json, const StageOptions &options = {})
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Stage a graph from DSL text and optionally publish it.
-  auto stage_dsl(std::string_view dsl, const StageOptions& options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+  auto stage_dsl(std::string_view dsl, const StageOptions &options = {})
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Stage a graph by reading a DSL file from disk.
-  auto stage_file(std::string_view path, const StageOptions& options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+  auto stage_file(std::string_view path, const StageOptions &options = {})
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
 
   /// Publish a specific graph version as active.
   auto publish(std::string_view name, int version, PublishOptions options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Resolve the active snapshot for a graph name.
-  auto resolve(std::string_view name) const -> std::shared_ptr<const PlanSnapshot>;
+  auto resolve(std::string_view name) const
+      -> std::shared_ptr<const PlanSnapshot>;
   /// Resolve a specific graph snapshot version.
-  auto resolve(std::string_view name, int version) const -> std::shared_ptr<const PlanSnapshot>;
+  auto resolve(std::string_view name, int version) const
+      -> std::shared_ptr<const PlanSnapshot>;
   /// Return the active version number for a graph name (if any).
   auto active_version(std::string_view name) const -> std::optional<int>;
   /// List all stored versions for a graph name.
@@ -77,13 +79,19 @@ class Runtime {
   auto evict(std::string_view name, int version) -> bool;
 
   /// Execute the active graph version by name.
-  auto run(std::string_view name, RequestContext& ctx) const -> Expected<ExecResult>;
+  auto run(std::string_view name, RequestContext &ctx) const
+      -> Expected<ExecResult>;
   /// Execute a specific graph version by name.
-  auto run(std::string_view name, int version, RequestContext& ctx) const -> Expected<ExecResult>;
+  auto run(std::string_view name, int version, RequestContext &ctx) const
+      -> Expected<ExecResult>;
   /// Execute a previously staged snapshot.
-  auto run(const std::shared_ptr<const PlanSnapshot>& snapshot, RequestContext& ctx) const -> Expected<ExecResult>;
+  auto run(const std::shared_ptr<const PlanSnapshot> &snapshot,
+           RequestContext &ctx) const -> Expected<ExecResult>;
 
- private:
+  /// Start a unary gRPC serve host for the selected graph.
+  auto serve(ServeConfig config) -> Expected<std::unique_ptr<ServeHost>>;
+
+private:
   class GraphDaemon;
 
   KernelRegistry registry_;
@@ -92,4 +100,4 @@ class Runtime {
   std::unique_ptr<GraphDaemon> daemon_;
 };
 
-}  // namespace sr::engine
+} // namespace sr::engine

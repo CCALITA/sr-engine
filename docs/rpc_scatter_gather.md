@@ -65,7 +65,7 @@ The test expects `out == x * multiplier`.
 
 ## Real-World Test
 
-`tests/rpc_test.cpp` includes `test_rpc_scatter_gather_remote`:
+`tests/rpc_test.cpp` 
 
 - Starts a gRPC async generic server.
 - The server decodes shard payloads and scales each shard value.

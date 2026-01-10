@@ -241,8 +241,8 @@ auto test_runtime_hot_swap_concurrent() -> bool {
 }
 
 auto test_runtime_daemon_polling() -> bool {
-  auto unique_suffix =
-      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  auto unique_suffix = std::to_string(
+      std::chrono::steady_clock::now().time_since_epoch().count());
   auto temp_root = std::filesystem::temp_directory_path() /
                    std::format("sr_engine_daemon_{}", unique_suffix);
   std::error_code fs_error;
@@ -265,15 +265,15 @@ auto test_runtime_daemon_polling() -> bool {
     sr::engine::RuntimeConfig config;
     config.graph_root = temp_root;
     config.graph_poll_interval = std::chrono::milliseconds(25);
-    config.graph_publish = true;
+
     config.graph_allow_replace = true;
 
     sr::engine::Runtime runtime(config);
     sr::kernel::register_sample_kernels(runtime.registry());
 
-    auto loaded =
-        wait_for_condition([&] { return runtime.resolve("daemon_graph") != nullptr; },
-                           std::chrono::seconds(2));
+    auto loaded = wait_for_condition(
+        [&] { return runtime.resolve("daemon_graph") != nullptr; },
+        std::chrono::seconds(2));
     if (!loaded) {
       std::cerr << "daemon did not load initial graph\n";
       ok = false;
@@ -292,14 +292,13 @@ auto test_runtime_daemon_polling() -> bool {
       ok = false;
     }
 
-    auto updated =
-        wait_for_condition(
-            [&] {
-              sr::engine::RequestContext inner_ctx;
-              auto next = runtime.run("daemon_graph", inner_ctx);
-              return next && next->outputs.at("out").get<int64_t>() == 9;
-            },
-            std::chrono::seconds(2));
+    auto updated = wait_for_condition(
+        [&] {
+          sr::engine::RequestContext inner_ctx;
+          auto next = runtime.run("daemon_graph", inner_ctx);
+          return next && next->outputs.at("out").get<int64_t>() == 9;
+        },
+        std::chrono::seconds(2));
     if (!updated) {
       std::cerr << "daemon did not refresh graph\n";
       ok = false;

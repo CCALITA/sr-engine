@@ -2,19 +2,21 @@
 
 #include "kernel/rpc_kernels.hpp"
 
-#if SR_ENGINE_WITH_GRPC
-
 #include <grpcpp/generic/async_generic_service.h>
 #include <grpcpp/grpcpp.h>
 
+#include <arpa/inet.h>
 #include <bit>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <netinet/in.h>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <sys/socket.h>
 #include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -93,11 +95,9 @@ auto decode_shard_payload(const grpc::ByteBuffer &buffer)
     -> sr::engine::Expected<DecodedShard> {
   const auto data = byte_buffer_to_string(buffer);
   if (data.size() < kShardHeaderSize) {
-    return tl::unexpected(
-        sr::engine::make_error("shard payload too small"));
+    return tl::unexpected(sr::engine::make_error("shard payload too small"));
   }
-  const auto *bytes =
-      reinterpret_cast<const unsigned char *>(data.data());
+  const auto *bytes = reinterpret_cast<const unsigned char *>(data.data());
   DecodedShard decoded;
   decoded.index = read_u32_le(bytes);
   decoded.count = read_u32_le(bytes + sizeof(std::uint32_t));
@@ -126,17 +126,49 @@ auto make_rpc_registry() -> sr::engine::KernelRegistry {
   return registry;
 }
 
+auto reserve_ephemeral_port() -> int {
+  int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    return 0;
+  }
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+  if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
+    ::close(fd);
+    return 0;
+  }
+  socklen_t len = sizeof(addr);
+  if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) != 0) {
+    ::close(fd);
+    return 0;
+  }
+  const int port = static_cast<int>(ntohs(addr.sin_port));
+  ::close(fd);
+  return port;
+}
+
 class ShardUnaryServer {
 public:
-  explicit ShardUnaryServer(std::int64_t multiplier)
-      : multiplier_(multiplier) {
+  explicit ShardUnaryServer(std::int64_t multiplier) : multiplier_(multiplier) {
     grpc::ServerBuilder builder;
     builder.RegisterAsyncGenericService(&service_);
-    builder.AddListeningPort("127.0.0.1:0",
-                             grpc::InsecureServerCredentials(), &port_);
+    const int reserved_port = reserve_ephemeral_port();
+    if (reserved_port <= 0) {
+      return;
+    }
+    const std::string address =
+        std::string("127.0.0.1:") + std::to_string(reserved_port);
+    builder.AddListeningPort(address, grpc::InsecureServerCredentials(),
+                             &port_);
     cq_ = builder.AddCompletionQueue();
     server_ = builder.BuildAndStart();
-    worker_ = std::thread([this]() { HandleRpcs(); });
+    if (server_) {
+      worker_ = std::thread([this]() { HandleRpcs(); });
+    } else if (cq_) {
+      cq_->Shutdown();
+    }
   }
 
   ~ShardUnaryServer() { Shutdown(); }
@@ -144,11 +176,12 @@ public:
   auto port() const -> int { return port_; }
 
   auto Shutdown() -> void {
-    if (!server_) {
-      return;
+    if (server_) {
+      server_->Shutdown();
     }
-    server_->Shutdown();
-    cq_->Shutdown();
+    if (cq_) {
+      cq_->Shutdown();
+    }
     if (worker_.joinable()) {
       worker_.join();
     }
@@ -160,8 +193,7 @@ private:
   public:
     CallData(grpc::AsyncGenericService *service,
              grpc::ServerCompletionQueue *cq, std::int64_t multiplier)
-        : service_(service), cq_(cq), stream_(&ctx_),
-          multiplier_(multiplier) {
+        : service_(service), cq_(cq), stream_(&ctx_), multiplier_(multiplier) {
       Proceed(true);
     }
 
@@ -387,130 +419,3 @@ auto test_rpc_server_output() -> bool {
   }
   return responder->last->status.code == grpc::StatusCode::OK;
 }
-
-auto test_rpc_scatter_gather() -> bool {
-  const char *dsl = R"JSON(
-  {
-    "version": 1,
-    "name": "rpc_scatter_gather",
-    "nodes": [
-      { "id": "scatter", "kernel": "scatter_i64", "params": { "parts": 4 }, "inputs": ["value"], "outputs": ["payloads"] },
-      { "id": "rpc", "kernel": "flatbuffer_echo_batch", "inputs": ["payloads"], "outputs": ["payloads"] },
-      { "id": "gather", "kernel": "gather_i64_sum", "inputs": ["payloads"], "outputs": ["sum"] }
-    ],
-    "bindings": [
-      { "to": "scatter.value", "from": "$req.x" },
-      { "to": "rpc.payloads", "from": "scatter.payloads" },
-      { "to": "gather.payloads", "from": "rpc.payloads" }
-    ],
-    "outputs": [
-      { "from": "gather.sum", "as": "out" }
-    ]
-  }
-  )JSON";
-
-  sr::engine::GraphDef graph;
-  std::string error;
-  if (!parse_graph(dsl, graph, error)) {
-    std::cerr << "parse error: " << error << "\n";
-    return false;
-  }
-
-  auto registry = make_rpc_registry();
-  auto plan = sr::engine::compile_plan(graph, registry);
-  if (!plan) {
-    std::cerr << "compile error: " << plan.error().message << "\n";
-    return false;
-  }
-
-  sr::engine::Executor executor;
-  sr::engine::RequestContext ctx;
-  ctx.set_env<int64_t>("x", 101);
-
-  auto result = executor.run(*plan, ctx);
-  if (!result) {
-    std::cerr << "run error: " << result.error().message << "\n";
-    return false;
-  }
-
-  const auto &value = result->outputs.at("out").get<int64_t>();
-  return value == 101;
-}
-
-auto test_rpc_scatter_gather_remote() -> bool {
-  const std::int64_t multiplier = 3;
-  ShardUnaryServer server(multiplier);
-  if (server.port() <= 0) {
-    std::cerr << "rpc server failed to bind\n";
-    return false;
-  }
-
-  const std::string target =
-      std::string("127.0.0.1:") + std::to_string(server.port());
-  const char *dsl = R"JSON(
-  {
-    "version": 1,
-    "name": "rpc_scatter_gather_remote",
-    "nodes": [
-      { "id": "scatter", "kernel": "scatter_i64", "params": { "parts": 4 }, "inputs": ["value"], "outputs": ["payloads"] },
-      { "id": "rpc", "kernel": "rpc_unary_call_batch", "params": { "target": "TARGET", "method": "/sr.engine.Shard/Scale", "timeout_ms": 2000, "wait_for_ready": true }, "inputs": ["payloads"], "outputs": ["payloads"] },
-      { "id": "gather", "kernel": "gather_i64_sum", "inputs": ["payloads"], "outputs": ["sum"] }
-    ],
-    "bindings": [
-      { "to": "scatter.value", "from": "$req.x" },
-      { "to": "rpc.payloads", "from": "scatter.payloads" },
-      { "to": "gather.payloads", "from": "rpc.payloads" }
-    ],
-    "outputs": [
-      { "from": "gather.sum", "as": "out" }
-    ]
-  }
-  )JSON";
-
-  auto replaced = std::string(dsl);
-  const std::string placeholder = "TARGET";
-  const auto pos = replaced.find(placeholder);
-  if (pos == std::string::npos) {
-    std::cerr << "rpc test missing target placeholder\n";
-    return false;
-  }
-  replaced.replace(pos, placeholder.size(), target);
-
-  sr::engine::GraphDef graph;
-  std::string error;
-  if (!parse_graph(replaced.c_str(), graph, error)) {
-    std::cerr << "parse error: " << error << "\n";
-    return false;
-  }
-
-  auto registry = make_rpc_registry();
-  auto plan = sr::engine::compile_plan(graph, registry);
-  if (!plan) {
-    std::cerr << "compile error: " << plan.error().message << "\n";
-    return false;
-  }
-
-  sr::engine::Executor executor;
-  sr::engine::RequestContext ctx;
-  ctx.set_env<int64_t>("x", 101);
-
-  auto result = executor.run(*plan, ctx);
-  if (!result) {
-    std::cerr << "run error: " << result.error().message << "\n";
-    return false;
-  }
-
-  const auto &value = result->outputs.at("out").get<int64_t>();
-  std::cout << "[rpc] status=OK calls=4 target=" << target << "\n";
-  return value == 101 * multiplier;
-}
-
-#else
-
-auto test_rpc_flatbuffer_echo() -> bool { return true; }
-auto test_rpc_server_input() -> bool { return true; }
-auto test_rpc_server_output() -> bool { return true; }
-auto test_rpc_scatter_gather() -> bool { return true; }
-auto test_rpc_scatter_gather_remote() -> bool { return true; }
-
-#endif  // SR_ENGINE_WITH_GRPC

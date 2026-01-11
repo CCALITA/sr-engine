@@ -16,10 +16,14 @@ using sr::engine::KernelRegistry;
 
 auto register_flight_types() -> void {
   sr::engine::register_type<flight::FlightCallKind>("flight_call_kind");
+  sr::engine::register_type<arrow::flight::Action>("flight_action_value");
   sr::engine::register_type<std::optional<arrow::flight::Action>>(
       "flight_action");
+  sr::engine::register_type<arrow::flight::Ticket>("flight_ticket_value");
   sr::engine::register_type<std::optional<arrow::flight::Ticket>>(
       "flight_ticket");
+  sr::engine::register_type<arrow::flight::FlightDescriptor>(
+      "flight_descriptor_value");
   sr::engine::register_type<std::optional<arrow::flight::FlightDescriptor>>(
       "flight_descriptor");
   sr::engine::register_type<

@@ -121,6 +121,9 @@ struct optional_value<T> {
 
 template <typename T> using optional_value_t = typename optional_value<T>::type;
 
+template <typename T>
+using output_port_type_t = port_type_t<optional_value_t<T>>;
+
 template <typename T> struct input_arg_traits {
   static constexpr bool optional = is_optional<T>;
   using port_type = port_type_t<optional_value_t<T>>;
@@ -143,10 +146,6 @@ inline constexpr bool is_mutable_lref_v =
 
 template <typename T>
 inline constexpr bool is_request_context_v =
-    std::is_same_v<std::remove_cvref_t<T>, RequestContextView>;
-
-template <typename T>
-inline constexpr bool is_request_context_base_v =
     std::is_same_v<std::remove_cvref_t<T>, RequestContext>;
 
 template <typename Tuple> struct tuple_tail;
@@ -189,12 +188,11 @@ template <typename Fn> struct kernel_traits {
 template <typename T>
 inline constexpr bool is_valid_input_arg_v =
     !is_request_context_v<std::remove_cvref_t<T>> &&
-    !is_request_context_base_v<std::remove_cvref_t<T>> &&
     !std::is_rvalue_reference_v<T> && !is_mutable_lref_v<T>;
 
 template <typename T>
 inline constexpr bool is_valid_output_arg_v =
-    !std::is_reference_v<T> && !is_optional<T> && !is_reference_wrapper<T>;
+    !std::is_reference_v<T> && !is_reference_wrapper<T>;
 
 template <typename Tuple, std::size_t... I>
 constexpr bool input_tuple_ok(std::index_sequence<I...>) {
@@ -228,7 +226,7 @@ template <typename Fn, typename Tuple, std::size_t... I>
 constexpr bool kernel_nothrow_invocable(std::index_sequence<I...>) {
   if constexpr (kernel_traits<Fn>::has_ctx) {
     return std::is_nothrow_invocable_v<
-        Fn, RequestContextView &,
+        Fn, RequestContext &,
         call_arg_type_t<std::tuple_element_t<I, Tuple>>...>;
   } else {
     return std::is_nothrow_invocable_v<
@@ -308,9 +306,18 @@ auto read_inputs(const InputValues &inputs) -> decltype(auto) {
 template <typename Tuple, std::size_t... I>
 auto write_tuple_outputs(OutputValues &outputs, Tuple &&tuple,
                          std::index_sequence<I...>) -> void {
-  (outputs
-       .set<port_type_t<std::tuple_element_t<I, std::remove_cvref_t<Tuple>>>>(
-           I, std::get<I>(std::forward<Tuple>(tuple))),
+  ([&] {
+    using Arg = std::tuple_element_t<I, std::remove_cvref_t<Tuple>>;
+    auto &&value = std::get<I>(std::forward<Tuple>(tuple));
+    if constexpr (is_optional<Arg>) {
+      if (!value) {
+        return;
+      }
+      outputs.set<output_port_type_t<Arg>>(I, *value);
+    } else {
+      outputs.set<output_port_type_t<Arg>>(I, std::forward<decltype(value)>(value));
+    }
+  }(),
    ...);
 }
 
@@ -323,8 +330,14 @@ auto write_outputs(OutputValues &outputs, R &&value) -> Expected<void> {
     write_tuple_outputs(outputs, std::forward<R>(value),
                         std::make_index_sequence<std::tuple_size_v<Raw>>{});
     return {};
+  } else if constexpr (is_optional<Raw>) {
+    if (!value) {
+      return {};
+    }
+    outputs.set<output_port_type_t<Raw>>(0, *value);
+    return {};
   } else {
-    outputs.set<port_type_t<Raw>>(0, std::forward<R>(value));
+    outputs.set<output_port_type_t<Raw>>(0, std::forward<R>(value));
     return {};
   }
 }
@@ -348,7 +361,7 @@ auto handle_return(OutputValues &outputs, R &&value) -> Expected<void> {
 }
 
 template <bool HasCtx, typename Fn, typename Tuple>
-auto apply_kernel(Fn &fn, RequestContextView &ctx, Tuple &&args)
+auto apply_kernel(Fn &fn, RequestContext &ctx, Tuple &&args)
     -> decltype(auto) {
   if constexpr (HasCtx) {
     return std::apply(
@@ -365,7 +378,7 @@ auto apply_kernel(Fn &fn, RequestContextView &ctx, Tuple &&args)
 }
 
 template <typename Fn>
-auto invoke_kernel(Fn &fn, RequestContextView &ctx, const InputValues &inputs,
+auto invoke_kernel(Fn &fn, RequestContext &ctx, const InputValues &inputs,
                    OutputValues &outputs) -> Expected<void> {
   using traits = kernel_traits<Fn>;
   using input_tuple = typename traits::input_tuple;
@@ -402,7 +415,7 @@ auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
 template <typename Arg>
 auto append_output(std::vector<PortDesc> &outputs, std::string_view name)
     -> Expected<void> {
-  using port_type = port_type_t<Arg>;
+  using port_type = output_port_type_t<Arg>;
   auto meta = entt::resolve<port_type>();
   if (!meta) {
     return tl::unexpected(
@@ -496,7 +509,7 @@ auto build_signature(const std::vector<std::string> &input_names,
 }
 
 template <typename Fn>
-auto compute_from_fn(void *ptr, RequestContextView &ctx,
+auto compute_from_fn(void *ptr, RequestContext &ctx,
                      const InputValues &inputs, OutputValues &outputs)
     -> Expected<void> {
   auto &fn = *static_cast<Fn *>(ptr);

@@ -38,46 +38,8 @@ target_include_directories(sr_engine PUBLIC
 
 option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." ON)
 
-set(SR_ENGINE_BUNDLED_GRPC_DIR
-  "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/grpc")
-if (NOT EXISTS "${SR_ENGINE_BUNDLED_GRPC_DIR}/CMakeLists.txt")
-  message(FATAL_ERROR "Bundled gRPC not found at ${SR_ENGINE_BUNDLED_GRPC_DIR}")
-endif()
-
-set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
-set(gRPC_INSTALL OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_CODEGEN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_CPP_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_CSHARP_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_CSHARP_EXT OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_NODE_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_OBJECTIVE_C_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_PHP_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_PYTHON_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_BUILD_GRPC_RUBY_PLUGIN OFF CACHE BOOL "" FORCE)
-set(gRPC_ABSL_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_CARES_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_PROTOBUF_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_RE2_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_SSL_PROVIDER "module" CACHE STRING "" FORCE)
-set(gRPC_ZLIB_PROVIDER "module" CACHE STRING "" FORCE)
-set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
-set(utf8_range_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
-
-add_subdirectory(${SR_ENGINE_BUNDLED_GRPC_DIR} ${CMAKE_CURRENT_BINARY_DIR}/grpc)
-if (NOT TARGET gRPC::grpc++)
-  add_library(gRPC::grpc++ ALIAS grpc++)
-endif()
-if (NOT TARGET gRPC::grpc)
-  add_library(gRPC::grpc ALIAS grpc)
-endif()
+find_package(gRPC CONFIG REQUIRED)
 target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)
-target_compile_definitions(sr_engine PUBLIC SR_ENGINE_WITH_GRPC=1)
 
 if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
   find_package(ArrowFlight CONFIG REQUIRED)
@@ -110,6 +72,14 @@ add_executable(sr_engine_complex_example
 )
 
 target_link_libraries(sr_engine_complex_example PRIVATE sr_engine)
+
+if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
+  add_executable(sr_engine_arrow_server
+    examples/arrow_server.cpp
+  )
+
+  target_link_libraries(sr_engine_arrow_server PRIVATE sr_engine)
+endif()
 
 enable_testing()
 

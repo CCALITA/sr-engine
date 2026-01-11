@@ -430,7 +430,7 @@ struct CompiledNode {
   std::span<const int> out_slots;
 
   // 运行入口：直接 compute 写入 OutputValues
-  Expected<void> (*compute)(void* kernel_instance, RequestContextView&, const InputValues&, OutputValues&);
+  Expected<void> (*compute)(void* kernel_instance, RequestContext&, const InputValues&, OutputValues&);
   void* kernel_instance;
 };
 

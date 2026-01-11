@@ -1,6 +1,6 @@
 #pragma once
 
-// #ifdef SR_ENGINE_WITH_ARROW_FLIGHT
+#ifdef SR_ENGINE_WITH_ARROW_FLIGHT
 
 #include <memory>
 #include <optional>

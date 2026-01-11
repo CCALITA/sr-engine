@@ -78,10 +78,9 @@ struct NodeBindings {
 // Per-run state allocated on each Executor::run call.
 struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   const ExecPlan *plan = nullptr;
-  RequestContext *ctx = nullptr;
+  const RequestContext *ctx = nullptr;
   trace::TraceContext *trace = nullptr;
   exec::static_thread_pool *pool = nullptr;
-  RequestContextView ctx_view;
 
   std::vector<ValueBox> slots;
   std::vector<NodeBindings> node_bindings;
@@ -128,8 +127,6 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
       !env_result) {
     return tl::unexpected(env_result.error());
   }
-  ctx_view = RequestContextView(ctx_ref);
-
   reset_slots(plan_ref, slots);
 
   const std::size_t node_count = plan_ref.nodes.size();
@@ -188,12 +185,14 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
     for (const auto &binding : node.inputs) {
       switch (binding.kind) {
       case InputBindingKind::Slot: {
-        input_refs.push_back(&slots[static_cast<std::size_t>(binding.slot_index)]);
+        input_refs.push_back(
+            &slots[static_cast<std::size_t>(binding.slot_index)]);
         break;
       }
       case InputBindingKind::Const: {
         input_refs.push_back(
-            &plan_ref.const_slots[static_cast<std::size_t>(binding.const_index)]);
+            &plan_ref
+                 .const_slots[static_cast<std::size_t>(binding.const_index)]);
         break;
       }
       case InputBindingKind::Env: {
@@ -261,7 +260,7 @@ auto RuntimeContext::schedule_node(int node_index) -> void {
 }
 
 auto RuntimeContext::execute_node(int node_index) -> void {
-  auto &ctx_ref = ctx_view;
+  auto &ctx_ref = *ctx;
   const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
   const auto &runtime = node_bindings[static_cast<std::size_t>(node_index)];
 
@@ -289,7 +288,7 @@ auto RuntimeContext::execute_node(int node_index) -> void {
   }
 
   auto finish_trace = [this, &node, node_index, span_id, start_ts](
-                        trace::SpanStatus status, std::string_view message) {
+                          trace::SpanStatus status, std::string_view message) {
     if constexpr (trace::kTraceEnabled) {
       if (trace && trace_flags != 0 && trace->sink.enabled()) {
         if (trace::has_flag(trace_flags, trace::TraceFlag::NodeSpan)) {

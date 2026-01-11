@@ -1,7 +1,6 @@
 #include "runtime/serve.hpp"
 
 #include <atomic>
-#include <concepts>
 #include <condition_variable>
 #include <deque>
 #include <format>
@@ -756,27 +755,10 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
   return bindings;
 }
 
-template <typename T>
-concept HasDeadline = requires(const T &ctx) {
-  { ctx.deadline() } -> std::same_as<std::chrono::system_clock::time_point>;
-};
-
-template <typename T>
-concept HasIsCancelled = requires(const T &ctx) {
-  { ctx.is_cancelled() } -> std::convertible_to<bool>;
-};
-
-template <typename T>
-concept HasPeer = requires(const T &ctx) {
-  { ctx.peer() } -> std::convertible_to<std::string>;
-};
-
 auto flight_deadline(const arrow::flight::ServerCallContext &ctx,
                      const std::optional<std::chrono::milliseconds> &fallback)
     -> std::chrono::steady_clock::time_point {
-  if constexpr (HasDeadline<arrow::flight::ServerCallContext>) {
-    return to_steady_deadline(ctx.deadline(), fallback);
-  }
+  (void)ctx;
   if (fallback) {
     return std::chrono::steady_clock::now() + *fallback;
   }
@@ -784,17 +766,11 @@ auto flight_deadline(const arrow::flight::ServerCallContext &ctx,
 }
 
 auto flight_peer(const arrow::flight::ServerCallContext &ctx) -> std::string {
-  if constexpr (HasPeer<arrow::flight::ServerCallContext>) {
-    return std::string(ctx.peer());
-  }
-  return {};
+  return std::string(ctx.peer());
 }
 
 auto flight_cancelled(const arrow::flight::ServerCallContext &ctx) -> bool {
-  if constexpr (HasIsCancelled<arrow::flight::ServerCallContext>) {
-    return ctx.is_cancelled();
-  }
-  return false;
+  return ctx.is_cancelled();
 }
 
 auto flight_descriptor_from_reader(
@@ -803,43 +779,7 @@ auto flight_descriptor_from_reader(
   if (!reader) {
     return std::nullopt;
   }
-  if constexpr (requires(const arrow::flight::FlightMessageReader &value) {
-                  value.descriptor();
-                }) {
-    auto descriptor = reader->descriptor();
-    if constexpr (std::is_same_v<decltype(descriptor),
-                                 arrow::flight::FlightDescriptor>) {
-      return descriptor;
-    } else if constexpr (std::is_same_v<
-                             decltype(descriptor),
-                             const arrow::flight::FlightDescriptor &>) {
-      return descriptor;
-    } else if constexpr (std::is_same_v<
-                             decltype(descriptor),
-                             arrow::Result<arrow::flight::FlightDescriptor>>) {
-      if (descriptor.ok()) {
-        return *descriptor;
-      }
-    } else if constexpr (std::is_same_v<
-                             decltype(descriptor),
-                             arrow::Result<std::shared_ptr<
-                                 arrow::flight::FlightDescriptor>>>) {
-      if (descriptor.ok() && *descriptor) {
-        return **descriptor;
-      }
-    } else if constexpr (std::is_same_v<decltype(descriptor),
-                                        std::shared_ptr<
-                                            arrow::flight::FlightDescriptor>>) {
-      if (descriptor) {
-        return *descriptor;
-      }
-    } else if constexpr (std::is_same_v<
-                             decltype(descriptor),
-                             std::optional<arrow::flight::FlightDescriptor>>) {
-      return descriptor;
-    }
-  }
-  return std::nullopt;
+  return reader->descriptor();
 }
 
 /// Populate RequestContext env with flight.* values required by the plan.
@@ -945,18 +885,13 @@ auto map_grpc_status_to_arrow(grpc::StatusCode code, std::string message)
   case grpc::StatusCode::ALREADY_EXISTS:
     return arrow::Status::AlreadyExists(std::move(message));
   default:
-    return arrow::Status::Unknown(std::move(message));
+    return arrow::Status::UnknownError(std::move(message));
   }
 }
 
 auto make_flight_options(const arrow::flight::Location &location)
     -> arrow::Result<arrow::flight::FlightServerOptions> {
-  if constexpr (requires {
-                  arrow::flight::FlightServerOptions::Make(location);
-                }) {
-    return arrow::flight::FlightServerOptions::Make(location);
-  }
-  return arrow::flight::FlightServerOptions{location};
+  return arrow::flight::FlightServerOptions(location);
 }
 
 class VectorResultStream final : public arrow::flight::ResultStream {
@@ -964,16 +899,14 @@ public:
   explicit VectorResultStream(std::vector<arrow::flight::Result> results)
       : results_(std::move(results)) {}
 
-  auto Next(std::unique_ptr<arrow::flight::Result> *result)
-      -> arrow::Status override {
+  auto Next() -> arrow::Result<std::unique_ptr<arrow::flight::Result>> override {
     if (index_ >= results_.size()) {
-      *result = nullptr;
-      return arrow::Status::OK();
+      return std::unique_ptr<arrow::flight::Result>{};
     }
-    *result =
+    auto result =
         std::make_unique<arrow::flight::Result>(std::move(results_[index_]));
     ++index_;
-    return arrow::Status::OK();
+    return result;
   }
 
 private:
@@ -1004,13 +937,6 @@ public:
       return tl::unexpected(make_error(options_result.status().ToString()));
     }
     options_ = std::move(*options_result);
-    if (io_threads_ > 0 && options_) {
-      if constexpr (requires(arrow::flight::FlightServerOptions opt) {
-                      opt.num_threads = 0;
-                    }) {
-        options_->num_threads = io_threads_;
-      }
-    }
     auto status = Init(*options_);
     if (!status.ok()) {
       return tl::unexpected(make_error(status.ToString()));
@@ -1021,7 +947,10 @@ public:
   }
 
   auto shutdown(std::chrono::milliseconds) -> void {
-    Shutdown();
+    if (!running_.load(std::memory_order_acquire)) {
+      return;
+    }
+    (void)Shutdown();
     if (worker_.joinable()) {
       worker_.join();
     }
@@ -1029,10 +958,7 @@ public:
   }
 
   auto port() const -> int {
-    if constexpr (requires(FlightServerBase &base) { base.port(); }) {
-      return static_cast<int>(FlightServerBase::port());
-    }
-    return 0;
+    return static_cast<int>(FlightServerBase::port());
   }
 
   auto DoAction(const arrow::flight::ServerCallContext &context,

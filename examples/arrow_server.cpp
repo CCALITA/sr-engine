@@ -1,8 +1,8 @@
 #include <arrow/api.h>
 #include <arrow/flight/api.h>
 
-#include <algorithm>
-#include <cctype>
+#include <cerrno>
+#include <cstdlib>
 #include <cstdint>
 #include <format>
 #include <iostream>
@@ -13,7 +13,6 @@
 #include <utility>
 #include <vector>
 
-#include "engine/error.hpp"
 #include "kernel/flight_kernels.hpp"
 #include "kernel/sample_kernels.hpp"
 #include "runtime/runtime.hpp"
@@ -24,22 +23,47 @@ namespace {
 /// CLI options for the Flight demo server.
 struct DemoOptions {
   std::string location = "grpc+tcp://127.0.0.1:0";
-  std::string action_type = "echo";
-  std::string action_body = "hello from sr-engine";
+  double tax_rate = 0.0825;
+  double discount = 1.5;
   bool serve_only = false;
+};
+
+constexpr std::string_view kDemoGraphName = "flight_invoice_exchange";
+
+/// Demo line item for the invoice payload.
+struct InvoiceLine {
+  std::string sku;
+  std::int64_t quantity = 0;
+  double unit_price = 0.0;
+  double discount = 0.0;
+  double tax_rate = 0.0;
 };
 
 /// Print CLI usage information.
 auto print_usage(std::string_view program) -> void {
   std::cout << std::format(
-      "Usage: {} [--location <uri>] [--action-type <type>] "
-      "[--action-body <body>] [--serve-only]\n"
+      "Usage: {} [--location <uri>] [--tax-rate <rate>] "
+      "[--discount <amount>] [--serve-only]\n"
       "Defaults:\n"
       "  --location grpc+tcp://127.0.0.1:0\n"
-      "  --action-type echo\n"
-      "  --action-body \"hello from sr-engine\"\n"
-      "Action types: echo, upper, len\n",
+      "  --tax-rate 0.0825\n"
+      "  --discount 1.5\n"
+      "Payload schema: sku (string), quantity (int64), "
+      "unit_price (float64), discount (float64), tax_rate (float64)\n"
+      "Tax rate accepts fraction (0.0825) or percent (8.25).\n",
       program);
+}
+
+/// Parse a double value from CLI.
+auto parse_double(std::string_view value) -> std::optional<double> {
+  std::string temp(value);
+  char *end = nullptr;
+  errno = 0;
+  const double parsed = std::strtod(temp.c_str(), &end);
+  if (end == temp.c_str() || *end != '\0' || errno == ERANGE) {
+    return std::nullopt;
+  }
+  return parsed;
 }
 
 /// Parse CLI arguments into demo options.
@@ -72,20 +96,40 @@ auto parse_args(int argc, char **argv) -> std::optional<DemoOptions> {
       options.location = std::move(*value);
       continue;
     }
-    if (arg == "--action-type") {
+    if (arg == "--tax-rate") {
       auto value = next_value(arg);
       if (!value) {
         return std::nullopt;
       }
-      options.action_type = std::move(*value);
+      auto parsed = parse_double(*value);
+      if (!parsed) {
+        std::cerr << "Invalid value for " << arg << "\n";
+        print_usage(argv[0]);
+        return std::nullopt;
+      }
+      if (*parsed < 0.0) {
+        std::cerr << "Tax rate must be non-negative\n";
+        return std::nullopt;
+      }
+      options.tax_rate = *parsed;
       continue;
     }
-    if (arg == "--action-body") {
+    if (arg == "--discount") {
       auto value = next_value(arg);
       if (!value) {
         return std::nullopt;
       }
-      options.action_body = std::move(*value);
+      auto parsed = parse_double(*value);
+      if (!parsed) {
+        std::cerr << "Invalid value for " << arg << "\n";
+        print_usage(argv[0]);
+        return std::nullopt;
+      }
+      if (*parsed < 0.0) {
+        std::cerr << "Discount must be non-negative\n";
+        return std::nullopt;
+      }
+      options.discount = *parsed;
       continue;
     }
     std::cerr << "Unknown argument: " << arg << "\n";
@@ -95,100 +139,79 @@ auto parse_args(int argc, char **argv) -> std::optional<DemoOptions> {
   return options;
 }
 
-/// Build an Arrow buffer from a payload string.
-auto make_buffer(std::string_view payload)
-    -> arrow::Result<std::shared_ptr<arrow::Buffer>> {
-  arrow::BufferBuilder builder;
-  const auto *data = reinterpret_cast<const std::uint8_t *>(payload.data());
-  auto status = builder.Append(data, static_cast<int64_t>(payload.size()));
-  if (!status.ok()) {
+/// Build a demo invoice payload with Arrow arrays.
+auto build_invoice_batch(const std::vector<InvoiceLine> &lines)
+    -> arrow::Result<std::shared_ptr<arrow::RecordBatch>> {
+  if (lines.empty()) {
+    return arrow::Status::Invalid("invoice payload missing line items");
+  }
+  auto schema = arrow::schema({
+      arrow::field("sku", arrow::utf8()),
+      arrow::field("quantity", arrow::int64()),
+      arrow::field("unit_price", arrow::float64()),
+      arrow::field("discount", arrow::float64()),
+      arrow::field("tax_rate", arrow::float64()),
+  });
+
+  arrow::StringBuilder sku_builder;
+  arrow::Int64Builder quantity_builder;
+  arrow::DoubleBuilder price_builder;
+  arrow::DoubleBuilder discount_builder;
+  arrow::DoubleBuilder tax_rate_builder;
+
+  for (const auto &line : lines) {
+    if (auto status = sku_builder.Append(line.sku); !status.ok()) {
+      return status;
+    }
+    if (auto status = quantity_builder.Append(line.quantity); !status.ok()) {
+      return status;
+    }
+    if (auto status = price_builder.Append(line.unit_price); !status.ok()) {
+      return status;
+    }
+    if (auto status = discount_builder.Append(line.discount); !status.ok()) {
+      return status;
+    }
+    if (auto status = tax_rate_builder.Append(line.tax_rate); !status.ok()) {
+      return status;
+    }
+  }
+
+  std::shared_ptr<arrow::Array> sku;
+  std::shared_ptr<arrow::Array> quantity;
+  std::shared_ptr<arrow::Array> unit_price;
+  std::shared_ptr<arrow::Array> discount;
+  std::shared_ptr<arrow::Array> tax_rate;
+
+  if (auto status = sku_builder.Finish(&sku); !status.ok()) {
     return status;
   }
-  std::shared_ptr<arrow::Buffer> buffer;
-  status = builder.Finish(&buffer);
-  if (!status.ok()) {
+  if (auto status = quantity_builder.Finish(&quantity); !status.ok()) {
     return status;
   }
-  return buffer;
+  if (auto status = price_builder.Finish(&unit_price); !status.ok()) {
+    return status;
+  }
+  if (auto status = discount_builder.Finish(&discount); !status.ok()) {
+    return status;
+  }
+  if (auto status = tax_rate_builder.Finish(&tax_rate); !status.ok()) {
+    return status;
+  }
+
+  return arrow::RecordBatch::Make(
+      schema, static_cast<int64_t>(lines.size()),
+      {sku, quantity, unit_price, discount, tax_rate});
 }
 
-/// Convert an Arrow buffer into a string payload.
-auto buffer_to_string(const std::shared_ptr<arrow::Buffer> &buffer)
-    -> std::string {
-  if (!buffer || buffer->size() == 0) {
-    return {};
-  }
-  const auto *data = reinterpret_cast<const char *>(buffer->data());
-  return std::string(data, static_cast<std::size_t>(buffer->size()));
-}
-
-/// Build a Flight action from CLI options.
-auto make_action(const DemoOptions &options)
-    -> arrow::Result<arrow::flight::Action> {
-  auto buffer_result = make_buffer(options.action_body);
-  if (!buffer_result.ok()) {
-    return buffer_result.status();
-  }
-  arrow::flight::Action action;
-  action.type = options.action_type;
-  action.body = std::move(*buffer_result);
-  return action;
-}
-
-/// Create a Flight result with the given payload.
-auto make_result(std::string_view payload)
-    -> arrow::Result<arrow::flight::Result> {
-  auto buffer_result = make_buffer(payload);
-  if (!buffer_result.ok()) {
-    return buffer_result.status();
-  }
-  arrow::flight::Result result;
-  result.body = std::move(*buffer_result);
-  return result;
-}
-
-/// Convert a string to uppercase for the demo actions.
-auto to_upper(std::string value) -> std::string {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::toupper(ch)); });
-  return value;
-}
-
-/// Evaluate the demo action and return a payload string.
-auto action_payload(std::string_view action_type, std::string payload)
-    -> sr::engine::Expected<std::string> {
-  if (action_type == "echo") {
-    return payload;
-  }
-  if (action_type == "upper") {
-    return to_upper(std::move(payload));
-  }
-  if (action_type == "len") {
-    return std::to_string(payload.size());
-  }
-  return tl::unexpected(sr::engine::make_error(
-      std::format("unsupported action type: {}", action_type)));
-}
-
-/// Flight kernel: transform a Flight action into a result payload.
-auto action_to_results(const std::optional<arrow::flight::Action> &action) noexcept
-    -> sr::engine::Expected<std::vector<arrow::flight::Result>> {
-  if (!action) {
-    return tl::unexpected(sr::engine::make_error("missing flight action"));
-  }
-  auto payload =
-      action_payload(action->type, buffer_to_string(action->body));
-  if (!payload) {
-    return tl::unexpected(payload.error());
-  }
-  auto result = make_result(*payload);
-  if (!result.ok()) {
-    return tl::unexpected(
-        sr::engine::make_error(result.status().ToString()));
-  }
-  std::vector<arrow::flight::Result> results;
-  results.push_back(std::move(*result));
-  return results;
+/// Build demo invoice line items.
+auto build_invoice_lines(const DemoOptions &options)
+    -> std::vector<InvoiceLine> {
+  std::vector<InvoiceLine> lines;
+  lines.push_back({"SKU-1001", 2, 19.99, 0.0, options.tax_rate});
+  lines.push_back({"SKU-2207", 1, 49.5, options.discount, options.tax_rate});
+  lines.push_back({"SKU-4033", 5, 4.25, 0.0, options.tax_rate});
+  return lines;
 }
 
 /// Connect a Flight client for the demo call.
@@ -197,35 +220,133 @@ auto connect_flight_client(const arrow::flight::Location &location)
   return arrow::flight::FlightClient::Connect(location);
 }
 
-/// Open a ResultStream for a DoAction call.
-auto open_action_stream(arrow::flight::FlightClient &client,
-                        const arrow::flight::Action &action)
-    -> arrow::Result<std::unique_ptr<arrow::flight::ResultStream>> {
-  return client.DoAction(action);
+/// Open a DoExchange stream for invoice calculation.
+auto open_exchange_stream(arrow::flight::FlightClient &client,
+                          std::string_view graph_name)
+    -> arrow::Result<arrow::flight::FlightClient::DoExchangeResult> {
+  arrow::flight::FlightCallOptions options;
+  options.headers.emplace_back("sr-graph-name", std::string(graph_name));
+  auto descriptor = arrow::flight::FlightDescriptor::Command(
+      std::string(sr::kernel::flight::kInvoiceDescriptorCommand));
+  return client.DoExchange(options, descriptor);
 }
 
-/// Collect all results from a ResultStream.
-auto collect_results(std::unique_ptr<arrow::flight::ResultStream> stream)
-    -> arrow::Result<std::vector<arrow::flight::Result>> {
-  if (!stream) {
-    return arrow::Status::Invalid("missing result stream");
+/// Write the invoice batch and close the client stream.
+auto send_invoice(arrow::flight::FlightStreamWriter &writer,
+                  const std::shared_ptr<arrow::RecordBatch> &batch)
+    -> arrow::Status {
+  if (!batch) {
+    return arrow::Status::Invalid("invoice batch missing");
   }
-  std::vector<arrow::flight::Result> results;
+  auto status = writer.Begin(batch->schema());
+  if (!status.ok()) {
+    return status;
+  }
+  status = writer.WriteRecordBatch(*batch);
+  if (!status.ok()) {
+    return status;
+  }
+  return writer.DoneWriting();
+}
+
+/// Read the first non-empty totals batch from the server.
+auto read_totals_batch(arrow::flight::FlightStreamReader &reader)
+    -> arrow::Result<std::shared_ptr<arrow::RecordBatch>> {
   while (true) {
-    auto next = stream->Next();
-    if (!next.ok()) {
-      return next.status();
+    auto chunk_result = reader.Next();
+    if (!chunk_result.ok()) {
+      return chunk_result.status();
     }
-    auto result = std::move(*next);
-    if (!result) {
+    auto chunk = std::move(*chunk_result);
+    if (!chunk.data) {
       break;
     }
-    results.push_back(std::move(*result));
+    if (chunk.data->num_rows() > 0) {
+      return chunk.data;
+    }
   }
-  return results;
+  return arrow::Status::Invalid("invoice response missing");
 }
 
-/// Execute a demo DoAction call against the local server.
+/// Read a single int64 value from a totals column.
+auto read_int64_value(const std::shared_ptr<arrow::Array> &array,
+                      std::string_view name)
+    -> arrow::Result<std::int64_t> {
+  if (!array) {
+    return arrow::Status::Invalid(
+        std::format("missing totals column {}", name));
+  }
+  auto typed = std::dynamic_pointer_cast<arrow::Int64Array>(array);
+  if (!typed) {
+    return arrow::Status::Invalid(
+        std::format("totals column {} is not int64", name));
+  }
+  if (typed->length() == 0 || typed->IsNull(0)) {
+    return arrow::Status::Invalid(
+        std::format("totals column {} is empty", name));
+  }
+  return typed->Value(0);
+}
+
+/// Read a single double value from a totals column.
+auto read_double_value(const std::shared_ptr<arrow::Array> &array,
+                       std::string_view name)
+    -> arrow::Result<double> {
+  if (!array) {
+    return arrow::Status::Invalid(
+        std::format("missing totals column {}", name));
+  }
+  auto typed = std::dynamic_pointer_cast<arrow::DoubleArray>(array);
+  if (!typed) {
+    return arrow::Status::Invalid(
+        std::format("totals column {} is not float64", name));
+  }
+  if (typed->length() == 0 || typed->IsNull(0)) {
+    return arrow::Status::Invalid(
+        std::format("totals column {} is empty", name));
+  }
+  return typed->Value(0);
+}
+
+/// Print the invoice totals batch.
+auto print_totals(const arrow::RecordBatch &batch) -> arrow::Status {
+  auto item_count =
+      read_int64_value(batch.GetColumnByName("item_count"), "item_count");
+  if (!item_count.ok()) {
+    return item_count.status();
+  }
+  auto quantity_total = read_int64_value(
+      batch.GetColumnByName("quantity_total"), "quantity_total");
+  if (!quantity_total.ok()) {
+    return quantity_total.status();
+  }
+  auto subtotal =
+      read_double_value(batch.GetColumnByName("subtotal"), "subtotal");
+  if (!subtotal.ok()) {
+    return subtotal.status();
+  }
+  auto discount = read_double_value(
+      batch.GetColumnByName("discount_total"), "discount_total");
+  if (!discount.ok()) {
+    return discount.status();
+  }
+  auto tax = read_double_value(batch.GetColumnByName("tax_total"), "tax_total");
+  if (!tax.ok()) {
+    return tax.status();
+  }
+  auto total = read_double_value(batch.GetColumnByName("total"), "total");
+  if (!total.ok()) {
+    return total.status();
+  }
+
+  std::cout << std::format(
+      "Invoice totals: items={}, quantity={}, subtotal=${:.2f}, "
+      "discount=${:.2f}, tax=${:.2f}, total=${:.2f}\n",
+      *item_count, *quantity_total, *subtotal, *discount, *tax, *total);
+  return arrow::Status::OK();
+}
+
+/// Execute a demo DoExchange call against the local server.
 auto run_demo_call(int port, const DemoOptions &options) -> arrow::Status {
   auto location_result = arrow::flight::Location::Parse(
       std::format("grpc+tcp://127.0.0.1:{}", port));
@@ -236,28 +357,24 @@ auto run_demo_call(int port, const DemoOptions &options) -> arrow::Status {
   if (!client_result.ok()) {
     return client_result.status();
   }
-  auto action_result = make_action(options);
-  if (!action_result.ok()) {
-    return action_result.status();
+  auto exchange_result = open_exchange_stream(**client_result, kDemoGraphName);
+  if (!exchange_result.ok()) {
+    return exchange_result.status();
   }
-  auto stream_result = open_action_stream(**client_result, *action_result);
-  if (!stream_result.ok()) {
-    return stream_result.status();
+  auto lines = build_invoice_lines(options);
+  auto batch_result = build_invoice_batch(lines);
+  if (!batch_result.ok()) {
+    return batch_result.status();
   }
-  auto results_result = collect_results(std::move(*stream_result));
-  if (!results_result.ok()) {
-    return results_result.status();
+  auto status = send_invoice(*exchange_result->writer, *batch_result);
+  if (!status.ok()) {
+    return status;
   }
-  if (results_result->empty()) {
-    std::cout << "Action returned no results.\n";
-    return arrow::Status::OK();
+  auto totals_result = read_totals_batch(*exchange_result->reader);
+  if (!totals_result.ok()) {
+    return totals_result.status();
   }
-  for (std::size_t i = 0; i < results_result->size(); ++i) {
-    const auto &result = (*results_result)[i];
-    std::cout << std::format("Result[{}]: {}\n", i,
-                             buffer_to_string(result.body));
-  }
-  return arrow::Status::OK();
+  return print_totals(**totals_result);
 }
 
 } // namespace
@@ -272,26 +389,17 @@ int main(int argc, char **argv) {
 
   sr::engine::Runtime runtime;
   sr::kernel::register_flight_kernels(runtime.registry());
-  runtime.registry().register_kernel("flight_action_demo", action_to_results);
 
   const char *dsl = R"JSON(
   {
     "version": 1,
-    "name": "flight_action_demo",
+    "name": "flight_invoice_exchange",
     "nodes": [
-      { "id": "in", "kernel": "flight_server_input",
-        "inputs": ["call"],
-        "outputs": ["kind", "action", "ticket", "descriptor", "reader", "writer", "metadata_writer"] },
-      { "id": "act", "kernel": "flight_action_demo",
-        "inputs": ["action"], "outputs": ["results"] },
-      { "id": "out", "kernel": "flight_action_output",
-        "inputs": ["call", "results"], "outputs": [] }
+      { "id": "calc", "kernel": "flight_invoice_exchange",
+        "inputs": ["call"], "outputs": [] }
     ],
     "bindings": [
-      { "to": "in.call", "from": "$req.flight.call" },
-      { "to": "act.action", "from": "in.action" },
-      { "to": "out.call", "from": "$req.flight.call" },
-      { "to": "out.results", "from": "act.results" }
+      { "to": "calc.call", "from": "$req.flight.call" }
     ],
     "outputs": []
   }
@@ -307,8 +415,7 @@ int main(int argc, char **argv) {
   }
 
   sr::engine::ServeEndpointConfig endpoint;
-  endpoint.name = "flight_action_demo";
-  endpoint.graph_name = "flight_action_demo";
+  endpoint.name = std::string(kDemoGraphName);
   sr::engine::FlightServeConfig flight;
   flight.location = options->location;
   flight.io_threads = 1;

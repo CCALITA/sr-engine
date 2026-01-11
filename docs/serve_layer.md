@@ -7,7 +7,7 @@ deadlines) and keeps per-request execution as a normal `ExecPlan` run.
 
 ## Goals
 
-- Unary gRPC and Arrow Flight (DoAction/DoGet/DoPut/DoExchange).
+- Unary gRPC, Unix IPC, and Arrow Flight (DoAction/DoGet/DoPut/DoExchange).
 - Method routing happens inside the graph (no external per-method routing).
 - No TLS/authn in the serve layer for now.
 - High-performance, low-latency, built on C++20 and stdexec sender/receiver.
@@ -26,10 +26,25 @@ deadlines) and keeps per-request execution as a normal `ExecPlan` run.
 - Converts client metadata + payload into a request envelope.
 - Provides a `RpcResponder` implementation that writes the response.
 
+**IPC Transport Adapter**
+- Accepts unary calls over a Unix domain socket.
+- Converts the IPC message into a request envelope.
+- Provides a `RpcResponder` implementation that writes the response.
+
 **Arrow Flight Transport Adapter**
 - Accepts Flight calls via `arrow::flight::FlightServerBase`.
 - Converts Flight call state into a request envelope.
 - Provides a `FlightResponder` implementation for `DoAction`/`DoGet`.
+
+## Implementation Layout
+
+- `src/runtime/serve/serve.cpp`: endpoint template, host wiring, transport traits.
+- `src/runtime/serve/common.hpp`: shared queue/env helpers and response helpers.
+- `src/runtime/serve/rpc_env.cpp` + `src/runtime/serve/rpc_env.hpp`: rpc env bindings.
+- `src/runtime/serve/grpc.cpp` + `src/runtime/serve/grpc.hpp`: gRPC transport adapter.
+- `src/runtime/serve/ipc.cpp` + `src/runtime/serve/ipc.hpp`: IPC transport adapter.
+- `src/runtime/serve/flight.cpp` + `src/runtime/serve/flight.hpp`: Flight transport adapter.
+- `src/runtime/serve/serve.hpp`: public serve API (included by `src/runtime/serve.hpp`).
 
 **Request Pipeline (sender/receiver)**
 - `accept → enqueue → schedule(request_pool) → run ExecPlan → respond`.
@@ -48,7 +63,13 @@ deadlines) and keeps per-request execution as a normal `ExecPlan` run.
 ## Request Env Keys
 
 The serve layer injects env entries when the graph binds them. Only `rpc.*` and
-`flight.*` keys are supported.
+`flight.*` keys are supported. IPC uses the same `rpc.*` keys as gRPC.
+
+## Graph Selection Metadata
+
+Each request must include the graph name metadata header (default
+`sr-graph-name`). Optionally include `sr-graph-version` to target a specific
+version. These keys are configurable via `ServeEndpointConfig::graph.metadata`.
 
 ### gRPC keys
 
@@ -88,7 +109,7 @@ Bind `call` from `$req.rpc.call`.
 
 ## Response Path
 
-- **gRPC:** use `rpc_server_output` to send responses.
+- **gRPC/IPC:** use `rpc_server_output` to send responses.
 - **Flight DoAction:** use `flight_action_output` to send results.
 - **Flight DoGet:** use `flight_get_output` to send a `RecordBatchReader`.
 - **Flight DoPut/DoExchange:** read/write from `flight.reader`/`flight.writer` and
@@ -98,6 +119,28 @@ The serve layer verifies that required responses were sent; otherwise it replies
 with an error status.
 
 See `docs/flight_kernels.md` for Flight kernel details.
+
+## IPC Wire Format
+
+IPC requests and responses are length-prefixed with 32-bit big-endian sizes.
+All strings are UTF-8 encoded.
+
+**Request**
+- `u32`: method length
+- `bytes`: method
+- `u32`: metadata entry count
+- per entry: `u32` key length, `bytes` key, `u32` value length, `bytes` value
+- `u32`: payload length
+- `bytes`: payload (opaque)
+
+**Response**
+- `u32`: status code (`grpc::StatusCode`)
+- `u32`: status message length, `bytes`: status message
+- `u32`: status details length, `bytes`: status details
+- `u32`: trailing metadata entry count
+- per entry: `u32` key length, `bytes` key, `u32` value length, `bytes` value
+- `u32`: payload length
+- `bytes`: payload (opaque)
 
 ## Backpressure
 

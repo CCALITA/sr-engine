@@ -1,0 +1,156 @@
+#pragma once
+
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+#include "engine/error.hpp"
+#include "engine/trace.hpp"
+
+namespace sr::engine {
+
+class Runtime;
+
+/// Live stats snapshot for the serve layer.
+struct ServeStats {
+  std::uint64_t accepted = 0;
+  std::uint64_t rejected = 0;
+  std::uint64_t completed = 0;
+  std::uint64_t failed = 0;
+  std::uint64_t inflight = 0;
+  std::uint64_t queued = 0;
+};
+
+/// Transport configuration for a unary gRPC endpoint.
+struct GrpcServeConfig {
+  /// gRPC listen address.
+  std::string address = "0.0.0.0:50051";
+  /// gRPC CQ worker count (<=0 uses 1).
+  int io_threads = 1;
+};
+
+/// Transport configuration for an Arrow Flight endpoint.
+struct FlightServeConfig {
+  /// Flight server location (grpc+tcp://host:port).
+  std::string location = "grpc+tcp://0.0.0.0:8815";
+  /// Flight worker thread count (<=0 uses 1).
+  int io_threads = 1;
+};
+
+/// Transport configuration for a Unix IPC endpoint.
+struct IpcServeConfig {
+  /// Filesystem path for the Unix domain socket.
+  std::string path = "/tmp/sr_engine.sock";
+  /// IPC worker thread count (<=0 uses 1).
+  int io_threads = 1;
+  /// Listen backlog for pending connections.
+  int backlog = 128;
+  /// Remove an existing socket file before binding.
+  bool remove_existing = true;
+  /// Max bytes accepted for any IPC request field/payload.
+  std::size_t max_message_bytes = 64 * 1024 * 1024;
+};
+
+/// Transport selector for a serve endpoint.
+using ServeTransportConfig =
+    std::variant<GrpcServeConfig, FlightServeConfig, IpcServeConfig>;
+
+/// Metadata keys for selecting a graph per request.
+struct ServeGraphMetadataConfig {
+  /// Metadata key holding the graph name.
+  std::string name_header = "sr-graph-name";
+  /// Metadata key holding the graph version (optional).
+  std::string version_header = "sr-graph-version";
+};
+
+/// Graph selection configuration for a serve endpoint.
+struct ServeGraphSelector {
+  /// Per-request graph selection via metadata.
+  ServeGraphMetadataConfig metadata;
+};
+
+/// Configuration for a single serve endpoint.
+struct ServeEndpointConfig {
+  /// Human-readable endpoint name (auto-filled when empty).
+  std::string name;
+  /// Graph selection policy for incoming requests.
+  ServeGraphSelector graph;
+  /// Transport config (gRPC unary or Arrow Flight).
+  ServeTransportConfig transport = GrpcServeConfig{};
+  /// Queue dispatcher threads (<=0 uses 1).
+  int dispatch_threads = 1;
+  /// Request scheduler threads (<=0 uses hardware concurrency).
+  int request_threads = 0;
+  /// Max in-flight requests (<=0 is unbounded).
+  int max_inflight = 1024;
+  /// Pending queue capacity (0 disables the queue).
+  std::size_t queue_capacity = 1024;
+  /// Default request timeout when deadlines are unset.
+  std::optional<std::chrono::milliseconds> default_deadline;
+  /// Graceful shutdown timeout for draining requests.
+  std::chrono::milliseconds shutdown_timeout{std::chrono::seconds(5)};
+  /// Trace sink wired into per-request contexts.
+  trace::TraceSinkRef trace_sink;
+  /// Optional trace sampler used per request.
+  trace::TraceSampler trace_sampler;
+  /// Clock used for trace timestamps.
+  trace::TraceClock trace_clock{&trace::steady_tick};
+  /// Default trace flags when sampling is disabled.
+  trace::TraceFlags trace_flags =
+      trace::to_flags(trace::TraceFlag::RunSpan) |
+      trace::to_flags(trace::TraceFlag::NodeSpan);
+};
+
+/// Configuration for a multi-endpoint serve layer.
+struct ServeLayerConfig {
+  std::vector<ServeEndpointConfig> endpoints;
+};
+
+/// Snapshot of a serve endpoint and its counters.
+struct ServeEndpointSnapshot {
+  std::string name;
+  std::string transport;
+  int port = 0;
+  bool running = false;
+  ServeStats stats;
+};
+
+/// Long-lived serve layer that hosts one or more endpoints.
+class ServeHost {
+public:
+  /// Create and start a ServeHost bound to the provided runtime.
+  /// The runtime must outlive the ServeHost instance.
+  static auto create(Runtime& runtime, ServeLayerConfig config)
+      -> Expected<std::unique_ptr<ServeHost>>;
+
+  ServeHost(const ServeHost&) = delete;
+  ServeHost& operator=(const ServeHost&) = delete;
+  ServeHost(ServeHost&&) = delete;
+  ServeHost& operator=(ServeHost&&) = delete;
+
+  /// Stop accepting new requests and drain outstanding work.
+  auto shutdown() -> void;
+  /// Block until all in-flight requests have completed.
+  auto wait() -> void;
+  /// Return snapshots for all endpoints.
+  auto stats() const -> std::vector<ServeEndpointSnapshot>;
+  /// Return true while every endpoint is running.
+  auto running() const -> bool;
+
+  ~ServeHost();
+
+private:
+  explicit ServeHost(Runtime& runtime, ServeLayerConfig config);
+  auto start() -> Expected<void>;
+
+  struct State;
+  std::unique_ptr<State> state_;
+};
+
+}  // namespace sr::engine

@@ -47,13 +47,20 @@ struct UnaryCallResult {
   grpc::Status status;
 };
 
+using MetadataPairs = std::vector<std::pair<std::string, std::string>>;
+
 /// Perform a blocking unary call through a generic stub.
 auto perform_unary_call(grpc::GenericStub &stub, std::string_view method,
                         const grpc::ByteBuffer &request,
-                        std::chrono::milliseconds timeout) -> UnaryCallResult {
+                        std::chrono::milliseconds timeout,
+                        const MetadataPairs &metadata = {})
+    -> UnaryCallResult {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   context.set_deadline(std::chrono::system_clock::now() + timeout);
+  for (const auto &entry : metadata) {
+    context.AddMetadata(entry.first, entry.second);
+  }
 
   grpc::ByteBuffer response;
   grpc::Status status;
@@ -94,24 +101,25 @@ auto test_serve_config_validation() -> bool {
   sr::kernel::register_rpc_kernels(runtime.registry());
 
   sr::engine::ServeEndpointConfig config;
-  config.graph_name = "";
+  config.graph.metadata.name_header.clear();
   sr::engine::GrpcServeConfig grpc_config;
   grpc_config.address = "127.0.0.1:0";
   config.transport = grpc_config;
   auto host = runtime.serve(config);
   if (host) {
-    std::cerr << "expected missing graph_name error\n";
+    std::cerr << "expected missing graph metadata key error\n";
     return false;
   }
-  if (host.error().message.find("graph_name") == std::string::npos) {
+  if (host.error().message.find("metadata") == std::string::npos) {
     std::cerr << "unexpected error: " << host.error().message << "\n";
     return false;
   }
 
-  config.graph_name = "missing_graph";
-  grpc_config.address = "";
-  config.transport = grpc_config;
-  auto host_bad_address = runtime.serve(config);
+  sr::engine::ServeEndpointConfig bad_address;
+  sr::engine::GrpcServeConfig missing_address;
+  missing_address.address = "";
+  bad_address.transport = missing_address;
+  auto host_bad_address = runtime.serve(bad_address);
   if (host_bad_address) {
     std::cerr << "expected missing address error\n";
     return false;
@@ -157,7 +165,6 @@ auto test_serve_unary_echo() -> bool {
   }
 
   sr::engine::ServeEndpointConfig config;
-  config.graph_name = "serve_echo";
   sr::engine::GrpcServeConfig grpc_config;
   grpc_config.address = "127.0.0.1:0";
   grpc_config.io_threads = 1;
@@ -188,8 +195,9 @@ auto test_serve_unary_echo() -> bool {
   grpc::GenericStub stub(channel);
 
   const auto request = make_byte_buffer("hello");
+  MetadataPairs metadata{{"sr-graph-name", "serve_echo"}};
   auto result = perform_unary_call(stub, "/sr.engine.Echo/Unary", request,
-                                   std::chrono::seconds(2));
+                                   std::chrono::seconds(2), metadata);
   if (!result.status.ok()) {
     std::cerr << "rpc error: " << result.status.error_message() << " ("
               << static_cast<int>(result.status.error_code()) << ")\n";
@@ -226,7 +234,6 @@ auto test_serve_missing_graph() -> bool {
   sr::kernel::register_rpc_kernels(runtime.registry());
 
   sr::engine::ServeEndpointConfig config;
-  config.graph_name = "missing_graph";
   sr::engine::GrpcServeConfig grpc_config;
   grpc_config.address = "127.0.0.1:0";
   grpc_config.io_threads = 1;
@@ -258,7 +265,8 @@ auto test_serve_missing_graph() -> bool {
 
   auto result =
       perform_unary_call(stub, "/sr.engine.Missing/Unary",
-                         make_byte_buffer("ping"), std::chrono::seconds(2));
+                         make_byte_buffer("ping"), std::chrono::seconds(2),
+                         {{"sr-graph-name", "missing_graph"}});
   if (result.status.error_code() != grpc::StatusCode::NOT_FOUND) {
     std::cerr << "expected NOT_FOUND, got "
               << static_cast<int>(result.status.error_code()) << "\n";
@@ -315,7 +323,6 @@ auto test_serve_multi_endpoint() -> bool {
   }
 
   sr::engine::ServeEndpointConfig endpoint_a;
-  endpoint_a.graph_name = "serve_echo_multi";
   sr::engine::GrpcServeConfig grpc_a;
   grpc_a.address = "127.0.0.1:0";
   grpc_a.io_threads = 1;
@@ -324,7 +331,6 @@ auto test_serve_multi_endpoint() -> bool {
   endpoint_a.request_threads = 1;
 
   sr::engine::ServeEndpointConfig endpoint_b;
-  endpoint_b.graph_name = "serve_echo_multi";
   sr::engine::GrpcServeConfig grpc_b;
   grpc_b.address = "127.0.0.1:0";
   grpc_b.io_threads = 1;
@@ -365,7 +371,8 @@ auto test_serve_multi_endpoint() -> bool {
     grpc::GenericStub stub(channel);
 
     auto result = perform_unary_call(stub, "/sr.engine.Echo/Unary", request,
-                                     std::chrono::seconds(2));
+                                     std::chrono::seconds(2),
+                                     {{"sr-graph-name", "serve_echo_multi"}});
     if (!result.status.ok()) {
       std::cerr << "rpc error: " << result.status.error_message() << " ("
                 << static_cast<int>(result.status.error_code()) << ")\n";

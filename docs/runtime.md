@@ -64,13 +64,15 @@ sr::kernel::register_sample_kernels(runtime.registry());
 sr::kernel::register_rpc_kernels(runtime.registry());
 
 sr::engine::ServeEndpointConfig endpoint;
-endpoint.graph_name = "rpc_graph";
 sr::engine::GrpcServeConfig grpc;
 grpc.address = "0.0.0.0:50051";
 endpoint.transport = grpc;
 
 auto host = runtime.serve(endpoint);
 ```
+
+Requests must include `sr-graph-name` metadata (and optional
+`sr-graph-version`) unless you override `endpoint.graph.metadata`.
 
 To run multiple endpoints:
 
@@ -87,13 +89,23 @@ config:
 
 ```
 sr::engine::ServeEndpointConfig flight_endpoint;
-flight_endpoint.graph_name = "flight_graph";
 sr::engine::FlightServeConfig flight;
 flight.location = "grpc+tcp://0.0.0.0:8815";
 flight_endpoint.transport = flight;
 
 sr::kernel::register_flight_kernels(runtime.registry());
 auto host = runtime.serve(flight_endpoint);
+```
+
+Unix IPC endpoints use `IpcServeConfig`:
+
+```
+sr::engine::ServeEndpointConfig ipc_endpoint;
+sr::engine::IpcServeConfig ipc;
+ipc.path = "/tmp/sr_engine.sock";
+ipc_endpoint.transport = ipc;
+
+auto host = runtime.serve(ipc_endpoint);
 ```
 
 See `docs/serve_layer.md` for request env keys, transport details, backpressure,

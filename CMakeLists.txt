@@ -25,7 +25,10 @@ add_library(sr_engine
   src/engine/registry.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
-  src/runtime/serve.cpp
+  src/runtime/serve/serve.cpp
+  src/runtime/serve/grpc.cpp
+  src/runtime/serve/ipc.cpp
+  src/runtime/serve/rpc_env.cpp
   src/kernel/sample_kernels.cpp
   src/kernel/rpc_kernels.cpp
 )
@@ -44,6 +47,7 @@ target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)
 if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
   find_package(ArrowFlight CONFIG REQUIRED)
   target_sources(sr_engine PRIVATE src/kernel/flight_kernels.cpp)
+  target_sources(sr_engine PRIVATE src/runtime/serve/flight.cpp)
   if (TARGET ArrowFlight::arrow_flight_shared)
     target_link_libraries(sr_engine PUBLIC ArrowFlight::arrow_flight_shared)
   elseif (TARGET ArrowFlight::arrow_flight_static)

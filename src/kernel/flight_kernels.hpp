@@ -5,6 +5,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <arrow/api.h>
@@ -48,6 +49,9 @@ struct FlightServerCall {
   std::shared_ptr<arrow::flight::FlightMetadataWriter> metadata_writer;
   std::shared_ptr<FlightResponder> responder;
 };
+
+/// Descriptor command used by the invoice exchange demo.
+constexpr std::string_view kInvoiceDescriptorCommand = "invoice.calculate";
 
 } // namespace sr::kernel::flight
 

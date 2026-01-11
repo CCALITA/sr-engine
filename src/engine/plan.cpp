@@ -368,6 +368,8 @@ struct PlanBuilder {
   auto build_dependents(ExecPlan &plan) -> Expected<void> {
     plan.dependents.assign(plan.nodes.size(), {});
     plan.pending_counts.assign(plan.nodes.size(), 0);
+    plan.initial_ready.clear();
+    plan.initial_ready.reserve(plan.nodes.size());
     std::vector<int> seen(plan.nodes.size(), -1);
     int stamp = 0;
     for (std::size_t node_index = 0; node_index < plan.nodes.size();
@@ -396,6 +398,9 @@ struct PlanBuilder {
         count += 1;
       }
       plan.pending_counts[node_index] = count;
+      if (count == 0) {
+        plan.initial_ready.push_back(static_cast<int>(node_index));
+      }
     }
     return {};
   }

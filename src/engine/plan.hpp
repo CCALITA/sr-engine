@@ -63,6 +63,7 @@ struct ExecPlan {
   std::vector<int> slot_producer;
   std::vector<std::vector<int>> dependents;
   std::vector<int> pending_counts;
+  std::vector<int> initial_ready;
   std::vector<OutputSlot> outputs;
 };
 

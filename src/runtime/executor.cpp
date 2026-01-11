@@ -6,6 +6,8 @@
 #include <latch>
 #include <memory>
 #include <mutex>
+#include <new>
+#include <span>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -75,10 +77,38 @@ struct NodeBindings {
   std::size_t output_count = 0;
 };
 
+#if defined(__cpp_lib_hardware_interference_size)
+constexpr std::size_t kNodeStateAlignment =
+    std::hardware_destructive_interference_size;
+#else
+constexpr std::size_t kNodeStateAlignment = 64;
+#endif
+
+// Per-node pending counter padded to reduce false sharing.
+struct alignas(kNodeStateAlignment) NodeState {
+  std::atomic<int> pending{0};
+
+  NodeState() = default;
+  NodeState(const NodeState &other) noexcept
+      : pending(other.pending.load(std::memory_order_relaxed)) {}
+  NodeState &operator=(const NodeState &other) noexcept {
+    pending.store(other.pending.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+    return *this;
+  }
+  NodeState(NodeState &&other) noexcept
+      : pending(other.pending.load(std::memory_order_relaxed)) {}
+  NodeState &operator=(NodeState &&other) noexcept {
+    pending.store(other.pending.load(std::memory_order_relaxed),
+                  std::memory_order_relaxed);
+    return *this;
+  }
+};
+
 // Per-run state allocated on each Executor::run call.
 struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   const ExecPlan *plan = nullptr;
-  const RequestContext *ctx = nullptr;
+  RequestContext *ctx = nullptr;
   trace::TraceContext *trace = nullptr;
   exec::static_thread_pool *pool = nullptr;
 
@@ -88,8 +118,7 @@ struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   std::vector<const ValueBox *> input_refs;
   std::vector<ValueBox *> output_ptrs;
   std::vector<trace::Tick> enqueue_ticks;
-  std::vector<int> pending_counts;
-  std::vector<int> scheduled;
+  std::vector<NodeState> node_states;
 
   std::atomic<int> pending_nodes{0};
   std::atomic<bool> aborted{false};
@@ -105,11 +134,14 @@ struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   auto prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
                exec::static_thread_pool &pool_ref) -> Expected<void>;
   auto schedule_initial_nodes() -> void;
-  auto schedule_node(int node_index) -> void;
+  auto schedule_nodes(std::span<const int> node_indices) -> void;
+  auto schedule_nodes(std::vector<int> node_indices) -> void;
   auto execute_node(int node_index) -> void;
   auto complete_node(int node_index) -> void;
   auto finish_node() -> void;
   auto record_error(std::string message) -> void;
+
+  template <class Range> auto schedule_nodes_impl(Range &&node_indices) -> void;
 };
 
 auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
@@ -209,54 +241,67 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
     }
   }
 
-  pending_counts = plan_ref.pending_counts;
-  scheduled.assign(node_count, 0);
+  node_states.clear();
+  node_states.resize(node_count);
+  for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
+    node_states[node_index].pending.store(plan_ref.pending_counts[node_index],
+                                          std::memory_order_relaxed);
+  }
   pending_nodes.store(static_cast<int>(node_count), std::memory_order_release);
   aborted.store(false, std::memory_order_release);
   has_error.store(false, std::memory_order_release);
-  error = EngineError{};
   return {};
 }
 
-auto RuntimeContext::schedule_initial_nodes() -> void {
-  const std::size_t node_count = plan->nodes.size();
-  for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
-    if (std::atomic_ref<int>(pending_counts[node_index])
-            .load(std::memory_order_relaxed) == 0) {
-      schedule_node(static_cast<int>(node_index));
-    }
-  }
-}
-
-auto RuntimeContext::schedule_node(int node_index) -> void {
+template <class Range>
+auto RuntimeContext::schedule_nodes_impl(Range &&node_indices) -> void {
   if (!plan || !pool) {
     return;
   }
-  if (node_index < 0 ||
-      static_cast<std::size_t>(node_index) >= scheduled.size()) {
+  const std::size_t count = node_indices.size();
+  if (count == 0) {
     return;
   }
-  int expected = 0;
-  if (!std::atomic_ref<int>(scheduled[static_cast<std::size_t>(node_index)])
-           .compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
-    return;
-  }
+
   if constexpr (trace::kTraceEnabled) {
     if (trace && trace_flags != 0 &&
         trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay) &&
-        node_index >= 0 &&
-        static_cast<std::size_t>(node_index) < enqueue_ticks.size()) {
-      enqueue_ticks[static_cast<std::size_t>(node_index)] = trace->now();
+        !enqueue_ticks.empty()) {
+      trace::Tick enqueue_tick = trace->now();
+      for (int node_index : node_indices) {
+        assert(node_index >= 0);
+        auto index = static_cast<std::size_t>(node_index);
+        assert(index < enqueue_ticks.size());
+        enqueue_ticks[index] = enqueue_tick;
+      }
     }
   }
 
-  auto scheduler = pool->get_scheduler();
-
   auto self = shared_from_this();
-  auto task =
-      stdexec::schedule(scheduler) |
-      stdexec::then([self, node_index]() { self->execute_node(node_index); });
-  stdexec::start_detached(std::move(task));
+  auto scheduler = pool->get_scheduler();
+  for (int node_index : node_indices) {
+    assert(node_index >= 0);
+    assert(static_cast<std::size_t>(node_index) < plan->nodes.size());
+    auto task =
+        stdexec::schedule(scheduler) |
+        stdexec::then([self, node_index]() { self->execute_node(node_index); });
+    stdexec::start_detached(std::move(task));
+  }
+}
+
+auto RuntimeContext::schedule_initial_nodes() -> void {
+  if (!plan) {
+    return;
+  }
+  schedule_nodes(std::span<const int>(plan->initial_ready));
+}
+
+auto RuntimeContext::schedule_nodes(std::span<const int> node_indices) -> void {
+  schedule_nodes_impl(node_indices);
+}
+
+auto RuntimeContext::schedule_nodes(std::vector<int> node_indices) -> void {
+  schedule_nodes_impl(std::move(node_indices));
 }
 
 auto RuntimeContext::execute_node(int node_index) -> void {
@@ -349,13 +394,17 @@ auto RuntimeContext::execute_node(int node_index) -> void {
 }
 
 auto RuntimeContext::complete_node(int node_index) -> void {
-  for (int dependent : plan->dependents[static_cast<std::size_t>(node_index)]) {
-    if (std::atomic_ref<int>(
-            pending_counts[static_cast<std::size_t>(dependent)])
-            .fetch_sub(1, std::memory_order_acq_rel) == 1) {
-      schedule_node(dependent);
+  const auto &dependents =
+      plan->dependents[static_cast<std::size_t>(node_index)];
+  std::vector<int> ready;
+  ready.reserve(dependents.size());
+  for (int dependent : dependents) {
+    if (node_states[static_cast<std::size_t>(dependent)].pending.fetch_sub(
+            1, std::memory_order_acq_rel) == 1) {
+      ready.push_back(dependent);
     }
   }
+  schedule_nodes(std::move(ready));
   finish_node();
 }
 

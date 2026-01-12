@@ -2,6 +2,7 @@
 /build/
 /build-clang/
 /build-tsan/
+/build-asan/
 /cmake-build-*/
 /CMakeFiles/
 /CMakeCache.txt

@@ -26,9 +26,6 @@
 
 #include "engine/error.hpp"
 #include "kernel/rpc_kernels.hpp"
-#ifdef SR_ENGINE_WITH_ARROW_FLIGHT
-#include "kernel/flight_kernels.hpp"
-#endif
 #include "runtime/runtime.hpp"
 #include "runtime/serve/common.hpp"
 #include "runtime/serve/grpc.hpp"
@@ -66,8 +63,8 @@ auto parse_graph_version(std::string_view value) -> Expected<int> {
   const auto *end = value.data() + value.size();
   auto [ptr, ec] = std::from_chars(begin, end, parsed);
   if (ec != std::errc{} || ptr != end) {
-    return tl::unexpected(make_error(
-        std::format("invalid graph version metadata: {}", value)));
+    return tl::unexpected(
+        make_error(std::format("invalid graph version metadata: {}", value)));
   }
   return parsed;
 }
@@ -304,11 +301,11 @@ private:
     if (!snapshot) {
       auto versions = runtime->list_versions(selection.name);
       if (!versions.empty()) {
-        return tl::unexpected(make_error(std::format(
-            "no active version for graph: {}", selection.name)));
+        return tl::unexpected(make_error(
+            std::format("no active version for graph: {}", selection.name)));
       }
-      return tl::unexpected(make_error(
-          std::format("graph not found: {}", selection.name)));
+      return tl::unexpected(
+          make_error(std::format("graph not found: {}", selection.name)));
     }
     return snapshot;
   }
@@ -413,8 +410,7 @@ private:
 
     auto selection = select_graph(env);
     if (!selection) {
-      fail(grpc::StatusCode::FAILED_PRECONDITION,
-           selection.error().message);
+      fail(grpc::StatusCode::FAILED_PRECONDITION, selection.error().message);
       return;
     }
 
@@ -776,8 +772,8 @@ struct FlightTraits {
       -> void {}
 
   static auto requires_response(const Envelope &env) -> bool {
-    return env.kind == FlightCallKind::DoAction ||
-           env.kind == FlightCallKind::DoGet;
+    return env.kind == kernel::flight::FlightCallKind::DoAction ||
+           env.kind == kernel::flight::FlightCallKind::DoGet;
   }
 
   static auto responder_available(const Envelope &env) -> bool {

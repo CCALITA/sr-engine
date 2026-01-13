@@ -39,7 +39,7 @@ target_include_directories(sr_engine PUBLIC
 )
 
 
-option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." ON)
+option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." OFF)
 
 find_package(gRPC CONFIG REQUIRED)
 target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)

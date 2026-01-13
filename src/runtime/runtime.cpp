@@ -13,6 +13,21 @@
 
 #include <filesystem>
 
+#include <exec/async_scope.hpp>
+#include <exec/static_thread_pool.hpp>
+#include <stdexec/execution.hpp>
+
+#include "engine/error.hpp"
+#include "kernel/rpc_kernels.hpp"
+#include "runtime/runtime.hpp"
+#include "runtime/serve/common.hpp"
+#include "runtime/serve/grpc.hpp"
+#include "runtime/serve/ipc.hpp"
+#include "runtime/serve/rpc_env.hpp"
+#ifdef SR_ENGINE_WITH_ARROW_FLIGHT
+#include "runtime/serve/flight.hpp"
+#endif
+
 namespace sr::engine {
 namespace {
 
@@ -196,7 +211,17 @@ private:
 };
 
 Runtime::Runtime(RuntimeConfig config)
-    : store_(config.store), executor_(config.executor) {
+    : thread_pool_(config.executor.compute_threads > 0
+                       ? config.executor.compute_threads
+                       : (std::thread::hardware_concurrency() > 0
+                              ? std::thread::hardware_concurrency()
+                              : 1)),
+      serve_pool_(config.executor.compute_threads > 0
+                      ? config.executor.compute_threads
+                      : (std::thread::hardware_concurrency() > 0
+                             ? std::thread::hardware_concurrency()
+                             : 1)),
+      store_(config.store), executor_(&thread_pool_) {
   if (config.graph_root && !config.graph_root->empty()) {
     daemon_ = std::make_unique<GraphDaemon>(
         *this, *config.graph_root, config.graph_poll_interval,
@@ -206,6 +231,14 @@ Runtime::Runtime(RuntimeConfig config)
 }
 
 Runtime::~Runtime() = default;
+
+auto Runtime::thread_pool() const -> exec::static_thread_pool & {
+  return thread_pool_;
+}
+
+auto Runtime::serve_pool() const -> exec::static_thread_pool & {
+  return serve_pool_;
+}
 
 auto Runtime::registry() -> KernelRegistry & { return registry_; }
 

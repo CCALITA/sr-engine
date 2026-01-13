@@ -38,7 +38,9 @@ auto test_basic_pipeline() -> bool {
     return false;
   }
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   sr::engine::RequestContext ctx;
   auto result = executor.run(*plan, ctx);
   if (!result) {
@@ -122,7 +124,9 @@ auto test_env_binding() -> bool {
     return false;
   }
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   sr::engine::RequestContext ctx;
   ctx.set_env<int64_t>("x", 8);
   auto result = executor.run(*plan, ctx);
@@ -330,7 +334,9 @@ auto test_env_type_mismatch() -> bool {
     return false;
   }
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   sr::engine::RequestContext ctx;
   ctx.set_env<std::string>("x", "bad-type");
   auto result = executor.run(*plan, ctx);
@@ -371,7 +377,9 @@ auto test_dynamic_port_names() -> bool {
     return false;
   }
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   sr::engine::RequestContext ctx;
   auto result = executor.run(*plan, ctx);
   if (!result) {
@@ -582,27 +590,24 @@ auto test_dataflow_task_types() -> bool {
 
   auto record = std::make_shared<ThreadRecord>();
 
-  registry.register_kernel(
-      "compute_recorder",
-      [record](int64_t value) noexcept {
-        {
-          std::lock_guard<std::mutex> lock(record->mutex);
-          record->compute_id = std::this_thread::get_id();
-          record->compute_set = true;
-        }
-        return value;
-      });
+  registry.register_kernel("compute_recorder",
+                           [record](int64_t value) noexcept {
+                             {
+                               std::lock_guard<std::mutex> lock(record->mutex);
+                               record->compute_id = std::this_thread::get_id();
+                               record->compute_set = true;
+                             }
+                             return value;
+                           });
 
-  registry.register_kernel(
-      "io_recorder",
-      [record](int64_t value) noexcept {
-        {
-          std::lock_guard<std::mutex> lock(record->mutex);
-          record->io_id = std::this_thread::get_id();
-          record->io_set = true;
-        }
-        return value;
-      });
+  registry.register_kernel("io_recorder", [record](int64_t value) noexcept {
+    {
+      std::lock_guard<std::mutex> lock(record->mutex);
+      record->io_id = std::this_thread::get_id();
+      record->io_set = true;
+    }
+    return value;
+  });
 
   auto plan = sr::engine::compile_plan(graph, registry);
   if (!plan) {

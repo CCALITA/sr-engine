@@ -3,9 +3,15 @@
 #include <memory>
 #include <unordered_map>
 
+#include <exec/task.hpp>
+
 #include "engine/error.hpp"
 #include "engine/plan.hpp"
 #include "engine/types.hpp"
+
+namespace exec {
+class static_thread_pool;
+}
 
 namespace sr::engine {
 
@@ -23,8 +29,8 @@ struct ExecutorConfig {
 /// Executes compiled plans using a shared worker pool.
 class Executor {
 public:
-  /// Construct an executor with the provided thread configuration.
-  explicit Executor(ExecutorConfig config = {});
+  /// Construct an executor with the provided thread pool.
+  explicit Executor(exec::static_thread_pool *pool);
   /// Stops worker pools and releases resources.
   ~Executor();
 
@@ -38,8 +44,7 @@ public:
       -> Expected<ExecResult>;
 
 private:
-  struct Pools;
-  std::shared_ptr<Pools> pools_;
+  exec::static_thread_pool *pool_;
 };
 
 } // namespace sr::engine

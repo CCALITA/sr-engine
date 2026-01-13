@@ -294,7 +294,9 @@ auto test_rpc_flatbuffer_echo() -> bool {
     return false;
   }
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   sr::engine::RequestContext ctx;
   ctx.set_env<grpc::ByteBuffer>("payload", make_byte_buffer("hello"));
 
@@ -347,7 +349,9 @@ auto test_rpc_server_input() -> bool {
   call.metadata.entries.push_back({"x-id", "42"});
   ctx.set_env<sr::kernel::rpc::RpcServerCall>("call", std::move(call));
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   auto result = executor.run(*plan, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";
@@ -402,7 +406,9 @@ auto test_rpc_server_output() -> bool {
   ctx.set_env<sr::kernel::rpc::RpcServerCall>("call", std::move(call));
   ctx.set_env<grpc::ByteBuffer>("payload", make_byte_buffer("response"));
 
-  sr::engine::Executor executor;
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
+
   auto result = executor.run(*plan, ctx);
   if (!result) {
     std::cerr << "run error: " << result.error().message << "\n";

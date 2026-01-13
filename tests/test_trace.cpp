@@ -110,9 +110,8 @@ auto test_trace_parallel_runs() -> bool {
   std::atomic<int> failures{0};
   std::atomic<sr::engine::trace::TraceId> next_trace_id{1};
 
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 2;
-  sr::engine::Executor executor(config);
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
   const sr::engine::ExecPlan &compiled = *plan;
 
   std::vector<std::thread> threads;
@@ -231,9 +230,8 @@ auto test_trace_parallel_runs() -> bool {
             event.span_id, event.trace_id));
       }
       if (span.node_index != event.node_index) {
-        return fail(
-            std::format("node_end mismatch span {} for trace_id {}",
-                        event.span_id, event.trace_id));
+        return fail(std::format("node_end mismatch span {} for trace_id {}",
+                                event.span_id, event.trace_id));
       }
       span.end = true;
       span.end_index = event.index;
@@ -259,15 +257,16 @@ auto test_trace_parallel_runs() -> bool {
     }
     if (run.node_starts != static_cast<int>(node_count) ||
         run.node_ends != static_cast<int>(node_count)) {
-      return fail(std::format("trace_id {} node count mismatch starts={} ends={}",
-                              trace_id, run.node_starts, run.node_ends));
+      return fail(
+          std::format("trace_id {} node count mismatch starts={} ends={}",
+                      trace_id, run.node_starts, run.node_ends));
     }
   }
 
   for (const auto &[key, span] : spans) {
     if (!span.start || !span.end) {
-      return fail(std::format("incomplete span {} for trace_id {}",
-                              key.span_id, key.trace_id));
+      return fail(std::format("incomplete span {} for trace_id {}", key.span_id,
+                              key.trace_id));
     }
     if (span.start_index >= span.end_index) {
       return fail(std::format("span start after end {} for trace_id {}",

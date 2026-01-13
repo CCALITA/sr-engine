@@ -15,6 +15,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <atomic>
+#include <thread>
 
 namespace {
 
@@ -53,8 +55,7 @@ using MetadataPairs = std::vector<std::pair<std::string, std::string>>;
 auto perform_unary_call(grpc::GenericStub &stub, std::string_view method,
                         const grpc::ByteBuffer &request,
                         std::chrono::milliseconds timeout,
-                        const MetadataPairs &metadata = {})
-    -> UnaryCallResult {
+                        const MetadataPairs &metadata = {}) -> UnaryCallResult {
   grpc::ClientContext context;
   context.set_wait_for_ready(true);
   context.set_deadline(std::chrono::system_clock::now() + timeout);
@@ -291,7 +292,7 @@ auto test_serve_missing_graph() -> bool {
   return true;
 }
 
-/// Verify multiple gRPC endpoints can run concurrently.
+/// Verify gRPC endpoints can run concurrently.
 auto test_serve_multi_endpoint() -> bool {
   const char *dsl = R"JSON(
   {
@@ -394,6 +395,113 @@ auto test_serve_multi_endpoint() -> bool {
       std::cerr << "unexpected stats for endpoint " << snapshot.name << "\n";
       return false;
     }
+  }
+
+  (*host)->shutdown();
+  (*host)->wait();
+  return true;
+}
+
+/// Verify heavy concurrent load on the server.
+auto test_serve_concurrent_stress() -> bool {
+  const char *dsl = R"JSON(
+  {
+    "version": 1,
+    "name": "serve_stress",
+    "nodes": [
+      { "id": "in", "kernel": "rpc_server_input", "inputs": ["call"], "outputs": ["method", "payload", "metadata"] },
+      { "id": "out", "kernel": "rpc_server_output", "inputs": ["call", "payload"], "outputs": [] }
+    ],
+    "bindings": [
+      { "to": "in.call", "from": "$req.rpc.call" },
+      { "to": "out.call", "from": "$req.rpc.call" },
+      { "to": "out.payload", "from": "in.payload" }
+    ],
+    "outputs": []
+  }
+  )JSON";
+
+  sr::engine::Runtime runtime;
+  sr::kernel::register_sample_kernels(runtime.registry());
+  sr::kernel::register_rpc_kernels(runtime.registry());
+
+  sr::engine::StageOptions options;
+  options.publish = true;
+  auto snapshot = runtime.stage_dsl(dsl, options);
+  if (!snapshot) {
+    std::cerr << "stage error: " << snapshot.error().message << "\n";
+    return false;
+  }
+
+  sr::engine::ServeEndpointConfig config;
+  sr::engine::GrpcServeConfig grpc_config;
+  grpc_config.address = "127.0.0.1:0";
+  grpc_config.io_threads = 4;
+  config.transport = grpc_config;
+  config.queue_capacity = 0;
+  config.request_threads = 8;
+  config.max_inflight = 128;
+
+  auto host = runtime.serve(config);
+  if (!host) {
+    std::cerr << "serve error: " << host.error().message << "\n";
+    return false;
+  }
+
+  auto snapshot2 = endpoint_snapshot(*(*host));
+  if (!snapshot2) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const int port = snapshot2->port;
+  if (port <= 0) {
+    std::cerr << "invalid serve port\n";
+    return false;
+  }
+
+  const int kThreads = 50;
+  const int kRequestsPerThread = 50;
+  std::atomic<int> success_count{0};
+  std::vector<std::thread> threads;
+  
+  auto channel = grpc::CreateChannel(std::format("127.0.0.1:{}", port),
+                                     grpc::InsecureChannelCredentials());
+
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([channel, &success_count]() {
+      grpc::GenericStub stub(channel);
+      const auto request = make_byte_buffer("stress");
+      MetadataPairs metadata{{"sr-graph-name", "serve_stress"}};
+      for (int j = 0; j < kRequestsPerThread; ++j) {
+        auto result = perform_unary_call(stub, "/sr.engine.Stress/Unary", request,
+                                         std::chrono::seconds(10), metadata);
+        if (result.status.ok() && byte_buffer_to_string(result.response) == "stress") {
+          success_count.fetch_add(1);
+        }
+      }
+    });
+  }
+
+  for (auto &t : threads) {
+    t.join();
+  }
+
+  if (success_count.load() != kThreads * kRequestsPerThread) {
+    std::cerr << "stress test failed: success=" << success_count.load() 
+              << " expected=" << kThreads * kRequestsPerThread << "\n";
+    return false;
+  }
+
+  (*host)->wait();
+  auto snapshot1 = endpoint_snapshot(*(*host));
+  if (!snapshot1) {
+    std::cerr << "missing endpoint snapshot\n";
+    return false;
+  }
+  const auto stats = snapshot1->stats;
+  if (stats.completed != static_cast<uint64_t>(kThreads * kRequestsPerThread)) {
+    std::cerr << "stats mismatch: completed=" << stats.completed << "\n";
+    return false;
   }
 
   (*host)->shutdown();

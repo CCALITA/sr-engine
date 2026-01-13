@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include <exec/async_scope.hpp>
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
@@ -129,7 +130,7 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
   trace::TraceId trace_id = 0;
   trace::SpanId run_span = 0;
   trace::Tick run_start = 0;
-  std::latch done_latch{1};
+  std::latch done_latch;
 
   auto prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
                exec::static_thread_pool &pool_ref) -> Expected<void>;
@@ -425,28 +426,17 @@ auto DAGStates::record_error(std::string message) -> void {
 
 } // namespace
 
-struct Executor::Pools {
-  explicit Pools(int threads) : pool(static_cast<std::size_t>(threads)) {}
-  exec::static_thread_pool pool;
-};
-
-Executor::Executor(ExecutorConfig config) {
-  int compute_threads = config.compute_threads;
-  if (compute_threads <= 0) {
-    compute_threads = static_cast<int>(std::thread::hardware_concurrency());
-    if (compute_threads <= 0) {
-      compute_threads = 2;
-    }
-  }
-  pools_ = std::make_shared<Pools>(compute_threads);
-}
+Executor::Executor(exec::static_thread_pool *pool) : pool_(pool) {}
 
 Executor::~Executor() = default;
 
 auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
     -> Expected<ExecResult> {
+  if (!pool_) {
+    return tl::unexpected(make_error("executor missing thread pool"));
+  }
   auto runtime = std::make_shared<DAGStates>();
-  if (auto prepared = runtime->prepare(plan, ctx, pools_->pool); !prepared) {
+  if (auto prepared = runtime->prepare(plan, ctx, *pool_); !prepared) {
     return tl::unexpected(prepared.error());
   }
 

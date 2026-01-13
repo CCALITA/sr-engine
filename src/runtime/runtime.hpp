@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include <exec/static_thread_pool.hpp>
+
 #include "engine/dsl.hpp"
 #include "engine/error.hpp"
 #include "engine/graph_store.hpp"
@@ -89,13 +91,21 @@ public:
            RequestContext &ctx) const -> Expected<ExecResult>;
 
   /// Start a serve host for a single endpoint.
-  auto serve(ServeEndpointConfig config) -> Expected<std::unique_ptr<ServeHost>>;
+  auto serve(ServeEndpointConfig config)
+      -> Expected<std::unique_ptr<ServeHost>>;
   /// Start a serve host for multiple endpoints.
   auto serve(ServeLayerConfig config) -> Expected<std::unique_ptr<ServeHost>>;
+
+  /// Access the shared thread pool.
+  auto thread_pool() const -> exec::static_thread_pool &;
+  /// Access the serve thread pool.
+  auto serve_pool() const -> exec::static_thread_pool &;
 
 private:
   class GraphDaemon;
 
+  mutable exec::static_thread_pool thread_pool_;
+  mutable exec::static_thread_pool serve_pool_;
   KernelRegistry registry_;
   GraphStore store_;
   Executor executor_;

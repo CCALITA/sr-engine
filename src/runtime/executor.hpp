@@ -1,10 +1,5 @@
 #pragma once
 
-#include <memory>
-#include <unordered_map>
-
-#include <exec/task.hpp>
-
 #include "engine/error.hpp"
 #include "engine/plan.hpp"
 #include "engine/types.hpp"

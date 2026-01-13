@@ -52,8 +52,7 @@ auto normalize_rate(double rate) -> Expected<double> {
     rate /= 100.0;
   }
   if (rate > 1.0) {
-    return tl::unexpected(
-        sr::engine::make_error("tax_rate exceeds 100%"));
+    return tl::unexpected(sr::engine::make_error("tax_rate exceeds 100%"));
   }
   return rate;
 }
@@ -77,7 +76,8 @@ auto find_field_index(const std::shared_ptr<arrow::Schema> &schema,
 
 /// Resolve an optional field index by name.
 auto optional_field_index(const std::shared_ptr<arrow::Schema> &schema,
-                          std::initializer_list<std::string_view> names) -> int {
+                          std::initializer_list<std::string_view> names)
+    -> int {
   if (!schema) {
     return -1;
   }
@@ -98,8 +98,8 @@ auto fetch_int64(const std::shared_ptr<arrow::Array> &array, int64_t row,
         std::format("invoice {} column missing", label)));
   }
   if (array->IsNull(row)) {
-    return tl::unexpected(sr::engine::make_error(
-        std::format("invoice {} value is null", label)));
+    return tl::unexpected(
+        sr::engine::make_error(std::format("invoice {} value is null", label)));
   }
   switch (array->type_id()) {
   case arrow::Type::INT64:
@@ -122,8 +122,8 @@ auto fetch_double(const std::shared_ptr<arrow::Array> &array, int64_t row,
         std::format("invoice {} column missing", label)));
   }
   if (array->IsNull(row)) {
-    return tl::unexpected(sr::engine::make_error(
-        std::format("invoice {} value is null", label)));
+    return tl::unexpected(
+        sr::engine::make_error(std::format("invoice {} value is null", label)));
   }
   switch (array->type_id()) {
   case arrow::Type::DOUBLE:
@@ -181,16 +181,16 @@ auto accumulate_invoice_totals(const arrow::RecordBatch &batch,
       return tl::unexpected(qty_value.error());
     }
     if (*qty_value <= 0) {
-      return tl::unexpected(sr::engine::make_error(
-          "invoice quantity must be positive"));
+      return tl::unexpected(
+          sr::engine::make_error("invoice quantity must be positive"));
     }
     auto price_value = fetch_double(price_array, row, "unit_price");
     if (!price_value) {
       return tl::unexpected(price_value.error());
     }
     if (*price_value < 0.0) {
-      return tl::unexpected(sr::engine::make_error(
-          "invoice unit_price must be non-negative"));
+      return tl::unexpected(
+          sr::engine::make_error("invoice unit_price must be non-negative"));
     }
     double discount_value = 0.0;
     if (discount_array) {
@@ -199,8 +199,8 @@ auto accumulate_invoice_totals(const arrow::RecordBatch &batch,
         return tl::unexpected(discount.error());
       }
       if (*discount < 0.0) {
-        return tl::unexpected(sr::engine::make_error(
-            "invoice discount must be non-negative"));
+        return tl::unexpected(
+            sr::engine::make_error("invoice discount must be non-negative"));
       }
       discount_value = *discount;
     }
@@ -217,8 +217,7 @@ auto accumulate_invoice_totals(const arrow::RecordBatch &batch,
       tax_rate_value = *normalized;
     }
 
-    const double line_subtotal =
-        static_cast<double>(*qty_value) * *price_value;
+    const double line_subtotal = static_cast<double>(*qty_value) * *price_value;
     const double line_discount = std::min(discount_value, line_subtotal);
     const double taxable = line_subtotal - line_discount;
     const double line_tax = taxable * tax_rate_value;
@@ -313,16 +312,14 @@ auto make_totals_batch(const InvoiceTotals &totals)
 auto flight_invoice_exchange(const flight::FlightServerCall &call) noexcept
     -> Expected<void> {
   if (call.kind != flight::FlightCallKind::DoExchange) {
-    return tl::unexpected(sr::engine::make_error(
-        "flight_invoice_exchange expects do_exchange"));
+    return tl::unexpected(
+        sr::engine::make_error("flight_invoice_exchange expects do_exchange"));
   }
   if (!call.reader) {
-    return tl::unexpected(
-        sr::engine::make_error("flight reader missing"));
+    return tl::unexpected(sr::engine::make_error("flight reader missing"));
   }
   if (!call.writer) {
-    return tl::unexpected(
-        sr::engine::make_error("flight writer missing"));
+    return tl::unexpected(sr::engine::make_error("flight writer missing"));
   }
 
   auto schema_result = call.reader->GetSchema();
@@ -424,8 +421,7 @@ auto register_flight_kernels(KernelRegistry &registry) -> void {
                                call.metadata_writer);
       });
 
-  registry.register_kernel("flight_invoice_exchange",
-                           flight_invoice_exchange);
+  registry.register_kernel("flight_invoice_exchange", flight_invoice_exchange);
 
   registry.register_kernel(
       "flight_action_output",

@@ -460,9 +460,8 @@ auto test_dataflow_fanout_join() -> bool {
     return false;
   }
 
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 4;
-  sr::engine::Executor executor(config);
+  exec::static_thread_pool pool(4);
+  sr::engine::Executor executor(&pool);
   sr::engine::RequestContext ctx;
   auto result = executor.run(*plan, ctx);
   if (!result) {
@@ -515,9 +514,9 @@ auto test_dataflow_parallel_runs() -> bool {
   threads.reserve(kThreads);
 
   const sr::engine::ExecPlan &compiled = *plan;
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 2;
-  sr::engine::Executor executor(config);
+
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
 
   for (int i = 0; i < kThreads; ++i) {
     threads.emplace_back([&, i]() {
@@ -615,9 +614,8 @@ auto test_dataflow_task_types() -> bool {
     return false;
   }
 
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 1;
-  sr::engine::Executor executor(config);
+  exec::static_thread_pool pool(1);
+  sr::engine::Executor executor(&pool);
   sr::engine::RequestContext ctx;
   auto result = executor.run(*plan, ctx);
   if (!result) {
@@ -673,9 +671,8 @@ auto test_dataflow_cancelled_request() -> bool {
     return false;
   }
 
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 2;
-  sr::engine::Executor executor(config);
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
   sr::engine::RequestContext ctx;
   ctx.cancel();
   auto result = executor.run(*plan, ctx);
@@ -712,9 +709,8 @@ auto test_dataflow_deadline_exceeded() -> bool {
     return false;
   }
 
-  sr::engine::ExecutorConfig config;
-  config.compute_threads = 2;
-  sr::engine::Executor executor(config);
+  exec::static_thread_pool pool(2);
+  sr::engine::Executor executor(&pool);
   sr::engine::RequestContext ctx;
   ctx.deadline =
       std::chrono::steady_clock::now() - std::chrono::milliseconds(1);

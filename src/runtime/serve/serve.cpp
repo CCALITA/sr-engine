@@ -92,8 +92,6 @@ auto parse_graph_selection(std::optional<std::string_view> name_value,
 }
 
 auto register_serve_types() -> void {
-  sr::engine::register_type<int64_t>("int64");
-  sr::engine::register_type<std::string>("string");
   sr::kernel::register_rpc_types();
 #ifdef SR_ENGINE_WITH_ARROW_FLIGHT
   sr::kernel::register_flight_types();

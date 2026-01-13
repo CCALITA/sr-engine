@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <concepts>
 #include <exec/any_sender_of.hpp>
 #include <format>
 #include <memory>
@@ -56,6 +57,7 @@ struct Signature {
 /// Type-erased box holding a registered value instance.
 struct ValueBox {
   entt::meta_type type{};
+  // todo: SBO?
   std::shared_ptr<void> storage{};
 
   auto has_value() const -> bool { return static_cast<bool>(storage); }
@@ -136,6 +138,7 @@ private:
 };
 /// Per-request mutable state (env values, cancellation, tracing).
 struct RequestContext {
+  //
   std::unordered_map<std::string, ValueBox> env;
   std::chrono::steady_clock::time_point deadline{
       std::chrono::steady_clock::time_point::max()};
@@ -164,7 +167,11 @@ struct RequestContext {
 };
 
 /// Register a C++ type for use in signatures and value slots.
-template <typename T> inline auto register_type(const char *name) -> void {
+
+template <typename T>
+  requires std::semiregular<T>
+inline auto register_type(const char *name) -> void {
+
   entt::meta<T>().type(entt::hashed_string{name});
 }
 

@@ -41,7 +41,7 @@ struct StageOptions {
   /// Optional content hash; computed when empty.
   std::string hash;
   /// When true, publish the staged version as active.
-  bool publish = false;
+  bool publish = true;
   /// When true, replace an existing version with a new hash.
   bool allow_replace = false;
 };
@@ -62,21 +62,24 @@ struct GraphStoreConfig {
 
 /// Stores compiled graph plans and tracks active versions.
 class GraphStore {
- public:
+public:
   /// Construct with retention policy.
   explicit GraphStore(GraphStoreConfig config = {});
 
   /// Compile a graph, store it, and optionally publish it.
-  auto stage(const GraphDef& graph, const KernelRegistry& registry, const StageOptions& options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+  auto stage(const GraphDef &graph, const KernelRegistry &registry,
+             const StageOptions &options = {})
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Publish a stored version as the active one.
   auto publish(std::string_view name, int version, PublishOptions options = {})
-    -> Expected<std::shared_ptr<const PlanSnapshot>>;
+      -> Expected<std::shared_ptr<const PlanSnapshot>>;
 
   /// Resolve the active version snapshot by name.
-  auto resolve(std::string_view name) const -> std::shared_ptr<const PlanSnapshot>;
+  auto resolve(std::string_view name) const
+      -> std::shared_ptr<const PlanSnapshot>;
   /// Resolve a specific stored version by name.
-  auto resolve(std::string_view name, int version) const -> std::shared_ptr<const PlanSnapshot>;
+  auto resolve(std::string_view name, int version) const
+      -> std::shared_ptr<const PlanSnapshot>;
   /// Return the active version number (if any).
   auto active_version(std::string_view name) const -> std::optional<int>;
   /// List all stored versions for a graph name.
@@ -84,20 +87,21 @@ class GraphStore {
   /// Remove a non-active version from the store.
   auto evict(std::string_view name, int version) -> bool;
 
- private:
+private:
   struct Entry {
     std::unordered_map<int, std::shared_ptr<const PlanSnapshot>> versions;
     std::shared_ptr<const PlanSnapshot> active;
     int active_version = -1;
   };
 
-  auto publish_locked(Entry& entry, const std::shared_ptr<const PlanSnapshot>& snapshot, PublishOptions options)
-    -> Expected<void>;
-  auto enforce_retention(Entry& entry) -> void;
+  auto publish_locked(Entry &entry,
+                      const std::shared_ptr<const PlanSnapshot> &snapshot,
+                      PublishOptions options) -> Expected<void>;
+  auto enforce_retention(Entry &entry) -> void;
 
   GraphStoreConfig config_;
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, Entry> entries_;
 };
 
-}  // namespace sr::engine
+} // namespace sr::engine

@@ -68,6 +68,7 @@ struct ExecPlan {
 };
 
 /// Compile a parsed graph against a kernel registry.
-auto compile_plan(const GraphDef& graph, const KernelRegistry& registry) -> Expected<ExecPlan>;
+auto compile_plan(const GraphDef &graph, const KernelRegistry &registry)
+    -> Expected<ExecPlan>;
 
-}  // namespace sr::engine
+} // namespace sr::engine

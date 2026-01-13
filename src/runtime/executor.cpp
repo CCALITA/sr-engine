@@ -106,7 +106,7 @@ struct alignas(kNodeStateAlignment) NodeState {
 };
 
 // Per-run state allocated on each Executor::run call.
-struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
+struct DAGStates : std::enable_shared_from_this<DAGStates> {
   const ExecPlan *plan = nullptr;
   RequestContext *ctx = nullptr;
   trace::TraceContext *trace = nullptr;
@@ -144,9 +144,8 @@ struct RuntimeContext : std::enable_shared_from_this<RuntimeContext> {
   template <class Range> auto schedule_nodes_impl(Range &&node_indices) -> void;
 };
 
-auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
-                             exec::static_thread_pool &pool_ref)
-    -> Expected<void> {
+auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
+                        exec::static_thread_pool &pool_ref) -> Expected<void> {
   plan = &plan_ref;
   ctx = &ctx_ref;
   trace = &ctx_ref.trace;
@@ -254,7 +253,7 @@ auto RuntimeContext::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
 }
 
 template <class Range>
-auto RuntimeContext::schedule_nodes_impl(Range &&node_indices) -> void {
+auto DAGStates::schedule_nodes_impl(Range &&node_indices) -> void {
   if (!plan || !pool) {
     return;
   }
@@ -289,22 +288,22 @@ auto RuntimeContext::schedule_nodes_impl(Range &&node_indices) -> void {
   }
 }
 
-auto RuntimeContext::schedule_initial_nodes() -> void {
+auto DAGStates::schedule_initial_nodes() -> void {
   if (!plan) {
     return;
   }
   schedule_nodes(std::span<const int>(plan->initial_ready));
 }
 
-auto RuntimeContext::schedule_nodes(std::span<const int> node_indices) -> void {
+auto DAGStates::schedule_nodes(std::span<const int> node_indices) -> void {
   schedule_nodes_impl(node_indices);
 }
 
-auto RuntimeContext::schedule_nodes(std::vector<int> node_indices) -> void {
+auto DAGStates::schedule_nodes(std::vector<int> node_indices) -> void {
   schedule_nodes_impl(std::move(node_indices));
 }
 
-auto RuntimeContext::execute_node(int node_index) -> void {
+auto DAGStates::execute_node(int node_index) -> void {
   auto &ctx_ref = *ctx;
   const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
   const auto &runtime = node_bindings[static_cast<std::size_t>(node_index)];
@@ -393,7 +392,7 @@ auto RuntimeContext::execute_node(int node_index) -> void {
   complete_node(node_index);
 }
 
-auto RuntimeContext::complete_node(int node_index) -> void {
+auto DAGStates::complete_node(int node_index) -> void {
   const auto &dependents =
       plan->dependents[static_cast<std::size_t>(node_index)];
   std::vector<int> ready;
@@ -408,13 +407,13 @@ auto RuntimeContext::complete_node(int node_index) -> void {
   finish_node();
 }
 
-auto RuntimeContext::finish_node() -> void {
+auto DAGStates::finish_node() -> void {
   if (pending_nodes.fetch_sub(1, std::memory_order_acq_rel) == 1) {
     done_latch.count_down();
   }
 }
 
-auto RuntimeContext::record_error(std::string message) -> void {
+auto DAGStates::record_error(std::string message) -> void {
   bool expected = false;
   if (has_error.compare_exchange_strong(expected, true,
                                         std::memory_order_acq_rel)) {
@@ -446,7 +445,7 @@ Executor::~Executor() = default;
 
 auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
     -> Expected<ExecResult> {
-  auto runtime = std::make_shared<RuntimeContext>();
+  auto runtime = std::make_shared<DAGStates>();
   if (auto prepared = runtime->prepare(plan, ctx, pools_->pool); !prepared) {
     return tl::unexpected(prepared.error());
   }

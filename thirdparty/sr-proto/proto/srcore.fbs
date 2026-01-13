@@ -1,0 +1,153 @@
+namespace srcore.apispec.fbs;
+
+enum DataType : int {
+  NoneType = 0,
+  Bool = 1,
+  Int8 = 2,
+  Int16 = 3,
+  Int32 = 4,
+  Int64 = 5,
+  Float = 10,
+  Double = 11,
+  String = 20,
+  VarChar = 21,
+  Array = 22,
+  JSON = 23,
+  BinaryVector = 100,
+  FloatVector = 101,
+  Float16Vector = 102,
+  BFloat16Vector = 103,
+}
+
+table BoolArray {
+  data:[bool];
+}
+
+table IntArray {
+  data:[int32];
+}
+
+table LongArray {
+  data:[int64];
+}
+
+table FloatArray {
+  data:[float];
+}
+
+table DoubleArray {
+  data:[double];
+}
+
+table BytesArray {
+  data:[string];
+}
+
+table StringArray {
+  data:[string];
+}
+
+table ArrayArray {
+  data:[ScalarField];
+  element_type:DataType;
+}
+
+table JSONArray {
+  data:[string];
+}
+
+table BinaryArray {
+  data:[byte];
+}
+
+table Float16Array {
+  data:[byte];
+}
+
+table Bfloat16Array {
+  data:[byte];
+}
+
+union ValueField {
+  bool_data:BoolArray,
+  int_data:IntArray,
+  long_data:LongArray,
+  float_data:FloatArray,
+  double_data:DoubleArray,
+  string_data:StringArray,
+  bytes_data:BytesArray,
+}
+
+union ScalarData {
+  bool_data:BoolArray,
+  int_data:IntArray,
+  long_data:LongArray,
+  float_data:FloatArray,
+  double_data:DoubleArray,
+  string_data:StringArray,
+  bytes_data:BytesArray,
+  array_data:ArrayArray,
+  json_data:JSONArray,
+}
+
+table ScalarField {
+  data:ScalarData;
+}
+
+union VectorData {
+  float_vector:FloatArray,
+  binary_vector:BinaryArray,
+  float16_vector:Float16Array,
+  bfloat16_vector:Bfloat16Array,
+}
+
+table VectorField {
+  dim:long;
+  data:VectorData;
+}
+
+union TypedFieldData {
+  scalars:ScalarField,
+  vectors:VectorField,
+}
+
+table FieldData {
+  type:DataType;
+  field_name:string;
+  field:TypedFieldData;
+  field_id:long;
+  is_dynamic:bool;
+}
+
+union IDs {
+  int_id:LongArray,
+  str_id:StringArray,
+}
+
+table SearchResults {
+  num_queries:long;
+  top_k:long;
+  fields_data:[FieldData];
+  distances:[float];
+  ids:IDs;
+  topks:[long];
+  output_fields:[string];
+  group_by_field_value:FieldData;
+}
+
+table RetrieveResults {
+  ids:IDs;
+  fields_data:[FieldData];
+}
+
+union TypedResults {
+  search_res:SearchResults,
+  retrieve_res:RetrieveResults,
+}
+
+table PlanResults {
+  results:TypedResults;
+}
+
+root_type PlanResults;
+

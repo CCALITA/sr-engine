@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package milvus.proto.indexcapi;
+
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "IndexCapiProto";
+option java_multiple_files = true;
+option java_generate_equals_and_hash = true;
+
+import "common.proto";
+
+message TypeParams {
+  repeated common.KeyValuePair params = 1;
+}
+
+message IndexParams {
+  repeated common.KeyValuePair params = 1;
+}
+
+// TypeParams & IndexParams will be replaced by MapParams later
+message MapParams {
+  repeated common.KeyValuePair params = 1;
+}
+
+message MapParamsV2 {
+  map<string, string> params = 1;
+}
+
+message Binary {
+  string key = 1;
+  bytes value = 2;
+}
+
+message BinarySet {
+  repeated Binary datas = 1;
+}
+

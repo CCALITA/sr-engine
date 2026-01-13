@@ -83,6 +83,13 @@ add_executable(sr_engine_ipc_server
 
 target_link_libraries(sr_engine_ipc_server PRIVATE sr_engine)
 
+add_executable(sr_engine_sr_ipc_server
+  examples/sr_ipc_server.cpp
+  examples/mock_api_c.cpp
+)
+
+target_link_libraries(sr_engine_sr_ipc_server PRIVATE sr_engine)
+
 if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
   add_executable(sr_engine_arrow_server
     examples/arrow_server.cpp

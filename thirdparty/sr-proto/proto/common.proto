@@ -1,0 +1,176 @@
+syntax = "proto3";
+package milvus.proto.common;
+
+
+option java_multiple_files = true;
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "CommonProto";
+option java_generate_equals_and_hash = true;
+option csharp_namespace = "Milvus.Client.Grpc";
+
+import "google/protobuf/descriptor.proto";
+
+enum IndexState {
+    IndexStateNone = 0;
+    Unissued = 1;
+    InProgress = 2;
+    Finished = 3;
+    Failed = 4;
+    Retry = 5;
+}
+
+enum SegmentState {
+    SegmentStateNone = 0;
+    NotExist = 1;
+    Growing = 2;
+    Sealed = 3;
+    Flushed = 4;
+    Flushing = 5;
+    Dropped = 6;
+    Importing = 7;
+}
+
+message Status {
+    string reason = 1;
+    int32 code = 2;
+    bool retriable = 3;
+    string detail = 4;
+}
+
+message KeyValuePair {
+    string key = 1;
+    string value = 2;
+}
+
+message KeyDataPair {
+    string key = 1;
+    bytes data = 2;
+}
+
+message Blob {
+    bytes value = 1;
+}
+
+enum PlaceholderType {
+    NoneType = 0;
+    BinaryVector = 100;
+    FloatVector = 101;
+    Float16Vector = 102;
+    BFloat16Vector = 103;
+    Int64 = 5;
+    VarChar = 21;
+}
+
+message PlaceholderValue {
+    string tag = 1;
+    PlaceholderType type = 2;
+    // values is a 2d-array, every array contains a vector
+    repeated bytes values = 3;
+}
+
+message PlaceholderGroup {
+    repeated PlaceholderValue placeholders = 1;
+}
+
+
+message Address {
+    string ip = 1;
+    int64 port = 2;
+}
+
+enum MsgType {
+    Undefined = 0;
+
+    Insert = 10;
+    Delete = 11;
+    Update = 12;
+}
+
+message MsgBase {
+    MsgType msg_type = 1;
+    int64  msgID = 2;
+    uint64 timestamp = 3;
+    int64 sourceID = 4;
+    int64 targetID = 5;
+    map<string, string> properties = 6;
+}
+
+message ReplicateInfo {
+    bool isReplicate = 1;
+    uint64 msgTimestamp = 2;
+}
+
+enum DslType {
+    Dsl = 0;
+    BoolExprV1 = 1;
+}
+
+message MsgHeader {
+    common.MsgBase base = 1;
+}
+
+enum CompactionState {
+    UndefiedState = 0;
+    Executing = 1;
+    Completed = 2;
+}
+
+enum ConsistencyLevel {
+    Strong = 0;
+    Session = 1; // default in PyMilvus
+    Bounded = 2;
+    Eventually = 3;
+    Customized = 4; // Users pass their own `guarantee_timestamp`.
+}
+
+enum ImportState {
+    ImportPending = 0;              // the task in in pending list of rootCoord, waiting to be executed
+    ImportFailed = 1;               // the task failed for some reason, get detail reason from GetImportStateResponse.infos
+    ImportStarted = 2;              // the task has been sent to datanode to execute
+    ImportPersisted = 5;            // all data files have been parsed and all meta data already persisted, ready to be flushed.
+    ImportFlushed = 8;              // all segments are successfully flushed.
+    ImportCompleted = 6;            // all indexes are successfully built and segments are able to be compacted as normal.
+    ImportFailedAndCleaned = 7;     // the task failed and all segments it generated are cleaned up.
+}
+
+enum StateCode {
+    Initializing = 0;
+    Healthy = 1;
+    Abnormal = 2;
+    StandBy = 3;
+    Stopping = 4;
+}
+
+enum LoadState {
+    LoadStateNotExist = 0;
+    LoadStateNotLoad = 1;
+    LoadStateLoading = 2;
+    LoadStateLoaded = 3;
+}
+
+message SegmentStats {
+    int64 SegmentID = 1;
+    int64 NumRows = 2;
+}
+
+message ClientInfo {
+    // sdk_type can be `python`, `golang`, `nodejs` and etc. It's not proper to make `sdk_type` an
+    // enumerate type, since we cannot always update the enum value everytime when newly sdk is supported.
+    string sdk_type = 1;
+    string sdk_version = 2;
+    string local_time = 3;
+    string user = 4;
+    string host = 5;
+    // reserved for newly-added feature if necessary.
+    map<string, string> reserved = 6;
+}
+
+message ServerInfo {
+    string build_tags = 1;
+    string build_time = 2;
+    string git_commit = 3;
+    string go_version = 4;
+    string deploy_mode = 5;
+    // reserved for newly-added feature if necessary.
+    map<string, string> reserved = 6;
+}

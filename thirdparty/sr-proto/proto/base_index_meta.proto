@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package milvus.proto.sr;
+
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "BaseIndexMetaProto";
+option java_multiple_files = true;
+option java_generate_equals_and_hash = true;
+
+import "google/protobuf/timestamp.proto";
+import "schema.proto";
+import "segcore.proto";
+
+message DataExportInfo {
+  repeated string file_paths = 1;
+  int64 field_id = 2;
+  int64 row_count = 3;
+}
+
+message SealedSegmentMeta {
+  SegmentMetaInfo segment_meta_info = 1;
+  repeated DataExportInfo raw_export_infos = 2;
+  repeated DataExportInfo index_export_infos = 3;
+}
+
+message SegmentMetaInfo {
+  int64 segment_id = 1;
+  google.protobuf.Timestamp min_timestamp = 2;
+  google.protobuf.Timestamp max_timestamp = 3;
+}
+
+message PartitionMeta {
+  int64 partition_id = 1; 
+  repeated SealedSegmentMeta sealed_segments_meta = 2;
+  repeated DataExportInfo delete_export_infos = 3;
+  int64 sealed_segment_num = 4;
+  int64 total_row_count = 5;
+  google.protobuf.Timestamp min_timestamp = 6;
+  google.protobuf.Timestamp max_timestamp = 7;
+}
+
+message CollectionMeta {
+  int64 collection_id = 1;
+  repeated PartitionMeta partitions_meta = 2;
+  milvus.proto.schema.CollectionSchema collection_schema = 3;
+  milvus.proto.segcore.CollectionIndexMeta collection_index_meta = 4;
+  int64 partition_num = 5;
+}
+
+message BaseIndexMeta {
+  int64 build_id = 1;
+  int64 index_version = 2;
+  repeated CollectionMeta collections_meta = 3;
+}

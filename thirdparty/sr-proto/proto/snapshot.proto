@@ -1,0 +1,72 @@
+syntax = "proto3";
+package milvus.proto.sr;
+
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "SnapshotProto";
+option java_multiple_files = true;
+option java_generate_equals_and_hash = true;
+
+import "common.proto";
+import "schema.proto";
+
+
+message TimestampRange {
+  uint64 start = 1;
+  uint64 end = 2;
+}
+
+message SegmentAttr {
+  int64 segment_id = 1;
+  TimestampRange ts_range = 2;
+  // row_count, deleted_count, deleted_pk_num, 
+  // type(base, incr or growing), version(for incr), etc.
+  repeated common.KeyValuePair attributes = 3;
+}
+
+message MemoryIndexInfo {
+  int64 version = 1;
+  repeated SegmentAttr base_segments = 2;
+  repeated SegmentAttr incr_segments = 3;
+  repeated SegmentAttr growing_segments = 4;
+  repeated int64 incr_versions = 5;
+}
+
+enum PartitionIndexState {
+  Init = 0;
+  Loading = 1;
+  Ready = 2;
+}
+
+message PartitionInfo {
+  int64 partition_id = 1;
+  PartitionIndexState index_state = 2;
+  repeated MemoryIndexInfo memory_indexes = 3;
+}
+  
+message CollectionInfo {
+  string collection_name = 1;
+  int64 shard_num = 2;
+  repeated int64 assigned_prt_ids = 3;
+  repeated PartitionInfo partitions = 4;
+  milvus.proto.schema.CollectionSchema collection_schema = 5;
+}
+
+enum CtxIndexState {
+  CtxIndexInit = 0;
+  CtxIndexReady = 1;
+}
+  
+message CollContextInfo {
+  message PartitionGroupState {
+    int64 partition_id = 1;
+    CtxIndexState index_state = 2;
+  }
+
+  string context_name = 1;
+  repeated CollectionInfo collections = 2;
+  repeated PartitionGroupState partition_group_states = 3;
+}
+
+message CollectionsMetaSnapshot {
+  repeated CollContextInfo collection_contexts = 1;
+}

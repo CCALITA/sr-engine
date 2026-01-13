@@ -1,0 +1,443 @@
+syntax = "proto3";
+package milvus.proto.plan;
+
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "PlanProto";
+option java_multiple_files = true;
+option java_generate_equals_and_hash = true;
+
+import "schema.proto";
+
+enum OpType {
+  Invalid = 0;
+  GreaterThan = 1;
+  GreaterEqual = 2;
+  LessThan = 3;
+  LessEqual = 4;
+  Equal = 5;
+  NotEqual = 6;
+  PrefixMatch = 7;  // startsWith
+  PostfixMatch = 8; // endsWith
+  Match = 9;        // like
+  Range = 10;       // for case 1 < a < b
+  In = 11;          // TODO:: used for term expr
+  NotIn = 12;
+};
+
+enum ArithOpType {
+  Unknown = 0;
+  Add = 1;
+  Sub = 2;
+  Mul = 3;
+  Div = 4;
+  Mod = 5;
+  ArrayLength = 6;
+};
+
+enum VectorType {
+  BinaryVector = 0;
+  FloatVector = 1;
+  Float16Vector = 2;
+};
+
+message GenericValue {
+  oneof val {
+    bool bool_val = 1;
+    int64 int64_val = 2;
+    double float_val = 3;
+    string string_val = 4;
+    Array array_val = 5;
+  };
+}
+
+message Array {
+  repeated GenericValue array = 1;
+  bool same_type = 2;
+  schema.DataType element_type = 3;
+}
+
+message QueryInfo {
+  int64 topk = 1;
+  string metric_type = 3;
+  string search_params = 4;
+  int64 round_decimal = 5;
+}
+
+message ColumnInfo {
+  int64 field_id = 1;
+  schema.DataType data_type = 2;
+  bool is_primary_key = 3;
+  bool is_autoID = 4;
+  repeated string nested_path = 5;
+  bool is_partition_key = 6;
+  schema.DataType element_type = 7;
+  string field_name = 8;
+}
+
+message ColumnExpr {
+  ColumnInfo info = 1;
+}
+
+message ExistsExpr {
+  ColumnInfo info = 1;
+}
+
+message ValueExpr {
+  GenericValue value = 1;
+}
+
+message UnaryRangeExpr {
+  ColumnInfo column_info = 1;
+  OpType op = 2;
+  GenericValue value = 3;
+}
+
+message BinaryRangeExpr {
+  ColumnInfo column_info = 1;
+  bool lower_inclusive = 2;
+  bool upper_inclusive = 3;
+  GenericValue lower_value = 4;
+  GenericValue upper_value = 5;
+}
+
+message TokenTrieExpr {
+  ColumnInfo column_info = 1;
+  int32 slots = 2;
+  repeated GenericValue values = 3;
+  int32 limit = 4;
+}
+
+message AcMatchExpr {
+  ColumnInfo column_info = 1;
+  repeated GenericValue values = 2;
+  int32 limit = 3;
+}
+
+message CompareExpr {
+  ColumnInfo left_column_info = 1;
+  ColumnInfo right_column_info = 2;
+  OpType op = 3;
+}
+
+message TermQueryConf {
+  enum QueryOp {
+    MaxK = 0;
+    MinK = 1;
+  }
+  enum ResultFillPolicy {
+    PerTerm = 0;
+    MixTerm = 1;
+  }
+  QueryOp qr_type = 1;
+  ResultFillPolicy fill_policy = 2;
+  string weight_field = 3;
+  int64 limit = 4;
+}
+
+message TermExpr {
+  ColumnInfo column_info = 1;
+  repeated GenericValue values = 2;
+  bool is_in_field = 3;
+  TermQueryConf query_conf = 4;
+  bool empty_always_true = 5;
+}
+
+message LogicalTermExpr {
+  enum LogicalOp {
+    LogicalOr = 0;   // default, same as TermExpr
+    LogicalAnd = 1;
+  }
+  LogicalOp op = 1;
+  ColumnInfo column_info = 2;
+  repeated GenericValue values = 3;
+  bool is_in_field = 4;
+  TermQueryConf query_conf = 5;
+  bool empty_always_true = 6;
+}
+
+message JSONContainsExpr {
+  ColumnInfo column_info = 1;
+  repeated GenericValue elements = 2;
+  // 0: invalid
+  // 1: json_contains | array_contains
+  // 2: json_contains_all | array_contains_all
+  // 3: json_contains_any | array_contains_any
+  enum JSONOp {
+    Invalid = 0;
+    Contains = 1;
+    ContainsAll = 2;
+    ContainsAny = 3;
+  }
+  JSONOp op = 3;
+  bool elements_same_type = 4;
+}
+
+message UnaryExpr {
+  enum UnaryOp {
+    Invalid = 0;
+    Not = 1;
+  };
+  UnaryOp op = 1;
+  Expr child = 2;
+}
+
+message TopKExpr {
+  enum TopOp{
+    min = 0;
+    max = 1;
+  };
+  Expr child = 1;
+  int64 topk = 2;
+  TopOp op = 3;
+  ColumnInfo column_info = 4;
+}
+
+message BinaryExpr {
+  enum BinaryOp {
+    Invalid = 0;
+    LogicalAnd = 1;
+    LogicalOr = 2;
+  }
+  BinaryOp op = 1;
+  Expr left = 2;
+  Expr right = 3;
+  bool enable_parallel = 4;
+}
+
+message BinaryArithOp {
+  ColumnInfo column_info = 1;
+  ArithOpType arith_op = 2;
+  GenericValue right_operand = 3;
+}
+
+message ValueInjectionExpr {
+  Expr left = 1;
+  oneof right {
+    TermExpr right_term_expr = 2;
+  }
+}
+
+message BinaryArithExpr {
+  Expr left = 1;
+  Expr right = 2;
+  ArithOpType op = 3;
+}
+
+message BinaryArithOpEvalRangeExpr {
+  ColumnInfo column_info = 1;
+  ArithOpType arith_op = 2;
+  GenericValue right_operand = 3;
+  OpType op = 4;
+  GenericValue value = 5;
+}
+
+message AlwaysTrueExpr {}
+
+
+message VirtualColumn {
+  string column_name = 1;
+  int64  column_id = 2;
+  schema.DataType column_data_type = 3;
+  schema.DataType column_element_type = 4;
+  string srcfield_name = 5;
+  int64  srcfield_id = 6;
+  //TODO: add auto gen column_name base on right coll info
+  
+};
+
+message SubQueryPlanNode {
+  Expr predicates = 1;
+  int64 limit = 2;
+};
+
+message LookupWithArithExpr {
+  enum SelectType {
+    MaxK = 0;
+    MinK = 1;
+  }
+  enum ResultFillRule {
+    SeqMixTerms = 0;
+    AvgPerTerm = 1;
+    MaxInTerms = 2;
+    SumMixTerms = 3;
+    AvgMixTerms = 4;
+  }
+  enum PKeysFillMode {
+    Any = 0;
+  }
+  ColumnInfo pkey_column_info = 1;
+  repeated GenericValue pkey_values = 2;
+  ColumnInfo skey_column_info = 3;
+  ArithOpType score_rule_arith_op = 5;
+  ColumnInfo score_rule_column_info = 6;
+  repeated GenericValue score_weight_values = 7;
+  SelectType sel_type = 8;
+  ResultFillRule res_fill_rule = 9;
+  GenericValue threshold_value = 10;
+  VirtualColumn  output_virtual_column = 11;
+  
+  // pkey_values select plannode expr
+  SubQueryPlanNode pkeys_plannode = 12;
+  PKeysFillMode pkeys_fill_mode = 13;
+  // output right fileds base on filtered result, Array(offsets)
+  repeated VirtualColumn extracting_nested_fields = 14;
+
+  int64 limit = 15;
+}
+
+message FieldIDs {
+  oneof field_ids {
+    schema.LongArray ids = 1;
+    schema.StringArray names = 2;
+  }
+}
+
+message FieldIdOrName {
+  oneof field_id_or_name {
+    int64 id = 1;
+    string name = 2;
+  }
+}
+
+message FieldInfo {
+   int64 id = 1;
+   string name = 2;
+}
+
+message LookupJoinExpr {
+  enum JoinType {
+    Invalid = 0;
+    Inner = 1;
+    LeftSemi = 2;
+  }
+  message RightFilter {
+    oneof filter {
+      LookupWithArithExpr lookup_arith_expr = 1;
+      //QueryPlanNode query_plan = 1;
+    }
+  }
+  JoinType join_type = 1;
+  string  left_collection_region_url = 2;
+  string  left_collection_name = 3;
+  ColumnInfo left_column_info = 4;
+  Expr left_filter = 5;
+  string  right_collection_region_url = 6;
+  string  right_collection_name = 7;
+  RightFilter  right_filter = 8;
+
+  // output right fileds as it is
+  FieldIDs output_fields = 15;
+
+  int64 limit = 20;
+}
+
+message Expr {
+  oneof expr {
+    TermExpr term_expr = 1;
+    UnaryExpr unary_expr = 2;
+    BinaryExpr binary_expr = 3;
+    CompareExpr compare_expr = 4;
+    UnaryRangeExpr unary_range_expr = 5;
+    BinaryRangeExpr binary_range_expr = 6;
+    BinaryArithOpEvalRangeExpr binary_arith_op_eval_range_expr = 7;
+    BinaryArithExpr binary_arith_expr = 8;
+    ValueExpr value_expr = 9;
+    ColumnExpr column_expr = 10;
+    ExistsExpr exists_expr = 11;
+    AlwaysTrueExpr always_true_expr = 12;
+    JSONContainsExpr json_contains_expr = 13;
+    TopKExpr topk_expr = 14;
+    ValueInjectionExpr value_injection_expr = 15;
+    LogicalTermExpr  logical_term_expr = 16;
+    LookupJoinExpr lookup_join_expr = 17;
+    TokenTrieExpr token_trie_expr = 18;
+    AcMatchExpr ac_match_expr = 19;
+  };
+}
+
+message VectorANNS {
+  VectorType vector_type = 1;
+  int64 field_id = 2;
+  Expr predicates = 3;
+  QueryInfo query_info = 4;
+  string placeholder_tag = 5;  // always be "$0"
+}
+
+message QueryPlanNode {
+  Expr predicates = 1;
+  bool is_count = 2;
+  int64 limit = 3;
+  LimitTruncConf limit_conf = 4;
+};
+
+message DynamicField {
+  message OutputFieldMap {
+    FieldIdOrName target_upper_field_info  = 1;
+    VirtualColumn gen_column_info = 2;
+  }
+  string  coll_context_name = 1;
+  string  coll_name = 2;
+  FieldIdOrName field_id_or_name = 3;
+  schema.DataType data_type = 4;
+  schema.DataType element_type = 5;
+  schema.ValueField default_value = 6;
+  OutputFieldMap output_field = 7;
+};
+
+message OrderByTrunc {
+  enum SortingType {
+    Asc = 0;
+    Desc = 1;
+  }
+  FieldIdOrName field_id_or_name = 1;
+  SortingType sorting_type = 2;
+  bool shuffle = 3;
+}
+
+message RandomShuffleTrunc {
+  int64 buffer_size = 1;
+}
+
+message LimitTruncConf {
+  oneof limit_trunc {
+    OrderByTrunc order_by = 1;
+    RandomShuffleTrunc random_shuffle = 2;
+  } 
+  int64 limit = 11;
+}
+
+message ExtractCombineCond {
+  enum CondOp {
+    Invalid = 0;
+    Union = 1;
+  }
+  CondOp op = 1;
+  repeated GenericValue values = 2;
+};
+
+message ExtractCond {
+  oneof kind {
+    ExtractCombineCond combine = 1;
+  }
+};
+
+message ExtractNestedField {
+  ColumnInfo column_info = 1; // Condition filtering field
+  repeated ExtractCond conds = 2;
+  //ColumnInfo output_filed_info = 3; // output field info, use column_info if not set
+
+
+  // output extra fields base on this field field resultset
+};
+
+message PlanNode {
+  oneof node {
+    VectorANNS vector_anns = 1;
+    Expr predicates = 2; // deprecated, use query instead.
+    QueryPlanNode query = 4;
+  }
+  repeated int64 output_field_ids = 3;
+  repeated string output_field_names = 5;
+  repeated DynamicField dynamic_fields = 6;
+  repeated ExtractNestedField extract_fields = 7;
+}

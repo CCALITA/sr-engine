@@ -1,0 +1,132 @@
+syntax = "proto3";
+package milvus.proto.bs;
+
+import "common.proto";
+import "schema.proto";
+import "segcore.proto";
+
+enum MsgType {
+  ADD = 0;
+  DELETE = 1;
+}
+
+enum IndexType {
+  NONE = 0;
+  SORT = 1;
+  INVERTED = 2;
+  VECTOR = 3;
+  BITMAP = 4;
+}
+
+enum TableType {
+  NORMAL = 0;
+  KV = 1;
+}
+
+message InnerFieldData {
+  string field_name = 1;
+  schema.DataType data_type = 2;
+  schema.DataType element_type = 3;
+  oneof field{
+    schema.ScalarField scalars = 4;
+    schema.VectorField vectors = 5;
+  }
+}
+
+message InnerMsg {
+  MsgType msg_type = 1;
+  repeated InnerFieldData data = 2;
+}
+
+message FieldDesc {
+  string field_name = 1;
+  int32 field_id = 2;
+  bool primary_key = 3;
+  schema.DataType data_type = 4;
+  schema.DataType element_type = 5;
+  repeated common.KeyValuePair type_params = 6;
+}
+
+message IndexDesc {
+  string index_name = 1;
+  string field_name = 2;
+  bool is_primary_key = 3;
+  IndexType index_type = 4;
+  milvus.proto.segcore.RawDataState raw_data_state = 5;
+  repeated common.KeyValuePair index_params = 6;
+}
+
+message Schema {
+  int32 schema_id = 1;
+  repeated FieldDesc columns = 2;
+  repeated IndexDesc indexes = 3;
+}
+
+message DataConf{
+  message Conf {
+    string source_directory = 1;
+    string target_directory = 2;
+  }
+  Conf full_load = 1;
+  Conf incremental_load = 2;
+}
+
+message BuildConf{
+  int64 segment_row_count = 1;
+  int64 build_concurrency = 2;
+  int64 build_field_concurrency = 3;
+}
+
+message Table{
+  string name = 1;
+  TableType table_type = 2;
+  int32 schema_id = 3;
+  string plan_json_file_path = 4;
+  DataConf data_conf = 5;
+  BuildConf build_conf = 6;
+}
+
+message SchemaBuilds {
+  repeated Schema schemas = 1;
+  repeated Table tables = 2;
+}
+
+enum DataType {
+  NodeType = 0;
+  BOOL = 1;
+  INT8 = 2;
+  INT16 = 3;
+  INT32 = 4;
+  INT64 = 5;
+
+  FLOAT = 10;
+  DOUBLE = 11;
+
+  STRING = 20;
+
+  ARRAY = 22;
+
+  FLOATVECTOR = 101;
+}
+
+message Value {
+  int32 Index = 1;
+  string name = 2;
+  bool primary_key = 3;
+  DataType dataType = 4;
+}
+
+message Field {
+  string name = 1;
+  DataType dataType = 2;
+  DataType elementType = 3;
+  int32 colum = 4;
+  string seperator = 5;
+  string value_seperator = 6;
+  repeated Value values = 7;
+} 
+
+message SourceSchema{
+  string colum_seperator = 1;
+  repeated Field fields = 2;
+}

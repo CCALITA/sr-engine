@@ -1,0 +1,63 @@
+syntax = "proto3";
+package milvus.proto.bs;
+option cc_generic_services = true;
+
+
+message CommonResponse {
+    int32 code = 1;
+    string message = 2;
+}
+
+message GetRequest{
+
+}
+
+message PartitionList {
+    repeated int32 paritionId = 1;
+}
+
+message  BuildServiceTaskRequest{
+    string tableName = 1;
+    string version = 2;
+    int32 buildMode = 3;
+    repeated int32 partitionIdList = 4;
+    int32 partitionCount = 5;
+}
+
+message BuildServiceStatusRequest{
+    string tableName = 1;
+    string version = 2;
+    int32 buildMode = 3;
+    int32 partitionId = 4;
+}
+
+message BuildServiceDoneRequest{
+    string tableName = 1;
+    string version = 2;
+    int32 buildMode = 3;
+}
+
+message TableInfo {
+    string tableName = 1;
+    string version = 2;
+    int32 buildMode = 3;
+    double dataSize = 4; // 数据的总量，计量单位位MB
+}
+
+message DataCheckResponse {
+    int32 code = 1;
+    string message = 2;
+    repeated TableInfo data = 3;
+}
+
+service BuildService {
+    rpc Status(GetRequest) returns (CommonResponse);
+
+    rpc TaskDisPatch(BuildServiceTaskRequest) returns (CommonResponse);
+
+    rpc TaskStatus(BuildServiceStatusRequest) returns (CommonResponse);
+
+    rpc TaskDone(BuildServiceDoneRequest) returns (CommonResponse);
+
+    rpc DataCheck(GetRequest) returns (DataCheckResponse);
+}

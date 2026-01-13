@@ -1,0 +1,96 @@
+syntax = "proto3";
+package milvus.proto.msgpack;
+
+option java_package = "com.jd.ninen.pb";
+option java_outer_classname = "MsgPackProto";
+option java_multiple_files = true;
+option java_generate_equals_and_hash = true;
+
+import "common.proto";
+import "schema.proto";
+
+enum InsertDataVersion {
+  RowBased = 0;
+  ColumnBased = 1;
+}
+
+message StreamMsgPack {
+  common.MsgBase  msg_base = 1;
+  repeated MsgDataWrapper data = 2;
+}
+
+message MsgDataWrapper {
+  oneof data {
+    InsertRequest  insert_msg = 1;
+    DeleteRequest  delete_msg = 2;
+    UpdateRequest  update_msg = 3;
+    PartialUpdateRequest partial_update_msg = 4;
+  }
+}
+
+message InsertRequest {
+  common.MsgBase base = 1;
+  string appli_name = 2;
+  string db_name = 3;
+  string collection_name = 4;
+  string partition_name = 5;
+  int64 collection_id = 6;
+  int64 partition_id = 7;
+  int64 segment_id = 8;
+  repeated uint64 timestamps = 9;
+  repeated schema.FieldData fields_data = 10;
+  uint64 num_rows = 11;
+}
+
+message DeleteRequest {
+  common.MsgBase base = 1;
+  string appli_name = 2;
+  string db_name = 3;
+  string collection_name = 4;
+  string partition_name = 5;
+  int64  collection_id = 6;
+  int64  partition_id = 7;
+  int64 segment_id = 8;
+  repeated uint64 timestamps = 9;
+  schema.IDs primary_keys = 10;
+  uint64 num_rows = 11;
+}
+
+enum UpdateEntityType {
+  FullRowData = 0;
+  FieldData = 1;
+}
+
+message UpdateRequest {
+  common.MsgBase base = 1;
+  string appli_name = 2;
+  string db_name = 3;
+  string collection_name = 4;
+  string partition_name = 5;
+  int64 collection_id = 6;
+  int64 partition_id = 7;
+  int64 segment_id = 8;
+  repeated uint64 timestamps = 9;
+  repeated schema.FieldData fields_data = 10;
+  schema.IDs primary_keys = 11;
+  uint64 num_rows = 12;
+}
+
+message PartialUpdateRequest {
+  common.MsgBase base = 1;
+  string appli_name = 2;
+  string db_name = 3;
+  string collection_name = 4;
+  string partition_name = 5;
+  int64 collection_id = 6;
+  int64 partition_id = 7;
+  int64 segment_id = 8;
+  uint64 timestamp = 9;
+  repeated schema.UpdateFieldData update_fields = 10;
+  schema.IDs primary_keys = 11;
+}
+
+message TimeTickMsg {
+  common.MsgBase base = 1;
+}
+

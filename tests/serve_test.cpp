@@ -17,6 +17,7 @@
 #include <vector>
 #include <atomic>
 #include <thread>
+#include <iostream>
 
 namespace {
 
@@ -170,7 +171,6 @@ auto test_serve_unary_echo() -> bool {
   grpc_config.address = "127.0.0.1:0";
   grpc_config.io_threads = 1;
   config.transport = grpc_config;
-  config.queue_capacity = 0;
   config.request_threads = 1;
   config.max_inflight = 4;
 
@@ -218,7 +218,7 @@ auto test_serve_unary_echo() -> bool {
   }
   const auto stats = snapshot1->stats;
   if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 0 ||
-      stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
+      stats.rejected != 0 || stats.inflight != 0) {
     std::cerr << "unexpected stats\n";
     return false;
   }
@@ -239,7 +239,6 @@ auto test_serve_missing_graph() -> bool {
   grpc_config.address = "127.0.0.1:0";
   grpc_config.io_threads = 1;
   config.transport = grpc_config;
-  config.queue_capacity = 0;
   config.request_threads = 1;
   config.max_inflight = 2;
 
@@ -282,7 +281,7 @@ auto test_serve_missing_graph() -> bool {
   }
   const auto stats = snapshot->stats;
   if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 1 ||
-      stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
+      stats.rejected != 0 || stats.inflight != 0) {
     std::cerr << "unexpected stats for missing graph\n";
     return false;
   }
@@ -328,7 +327,6 @@ auto test_serve_multi_endpoint() -> bool {
   grpc_a.address = "127.0.0.1:0";
   grpc_a.io_threads = 1;
   endpoint_a.transport = grpc_a;
-  endpoint_a.queue_capacity = 0;
   endpoint_a.request_threads = 1;
 
   sr::engine::ServeEndpointConfig endpoint_b;
@@ -336,7 +334,6 @@ auto test_serve_multi_endpoint() -> bool {
   grpc_b.address = "127.0.0.1:0";
   grpc_b.io_threads = 1;
   endpoint_b.transport = grpc_b;
-  endpoint_b.queue_capacity = 0;
   endpoint_b.request_threads = 1;
 
   sr::engine::ServeLayerConfig layer;
@@ -391,7 +388,7 @@ auto test_serve_multi_endpoint() -> bool {
   for (const auto &snapshot : snapshots) {
     const auto &stats = snapshot.stats;
     if (stats.accepted != 1 || stats.completed != 1 || stats.failed != 0 ||
-        stats.rejected != 0 || stats.inflight != 0 || stats.queued != 0) {
+        stats.rejected != 0 || stats.inflight != 0) {
       std::cerr << "unexpected stats for endpoint " << snapshot.name << "\n";
       return false;
     }
@@ -438,7 +435,6 @@ auto test_serve_concurrent_stress() -> bool {
   grpc_config.address = "127.0.0.1:0";
   grpc_config.io_threads = 4;
   config.transport = grpc_config;
-  config.queue_capacity = 0;
   config.request_threads = 8;
   config.max_inflight = 128;
 
@@ -459,13 +455,15 @@ auto test_serve_concurrent_stress() -> bool {
     return false;
   }
 
-  const int kThreads = 50;
-  const int kRequestsPerThread = 50;
+  const int kThreads = 100;
+  const int kRequestsPerThread = 100;
   std::atomic<int> success_count{0};
   std::vector<std::thread> threads;
   
   auto channel = grpc::CreateChannel(std::format("127.0.0.1:{}", port),
                                      grpc::InsecureChannelCredentials());
+
+  auto start_time = std::chrono::high_resolution_clock::now();
 
   for (int i = 0; i < kThreads; ++i) {
     threads.emplace_back([channel, &success_count]() {
@@ -485,6 +483,12 @@ auto test_serve_concurrent_stress() -> bool {
   for (auto &t : threads) {
     t.join();
   }
+
+  auto end_time = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+  double seconds = duration.count() / 1000.0;
+  double rps = (kThreads * kRequestsPerThread) / seconds;
+  std::cout << "Stress test duration: " << seconds << "s, RPS: " << rps << " (threads=" << kThreads << ", requests/thread=" << kRequestsPerThread << ")\n";
 
   if (success_count.load() != kThreads * kRequestsPerThread) {
     std::cerr << "stress test failed: success=" << success_count.load() 

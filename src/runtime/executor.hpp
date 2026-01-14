@@ -1,5 +1,7 @@
 #pragma once
 
+#include <exec/task.hpp>
+
 #include "engine/error.hpp"
 #include "engine/plan.hpp"
 #include "engine/types.hpp"
@@ -37,6 +39,10 @@ public:
   /// Execute a plan against a mutable request context.
   auto run(const ExecPlan &plan, RequestContext &ctx) const
       -> Expected<ExecResult>;
+
+  /// Execute a plan asynchronously.
+  auto run_async(const ExecPlan &plan, RequestContext &ctx) const
+      -> exec::task<Expected<ExecResult>>;
 
 private:
   exec::static_thread_pool *pool_;

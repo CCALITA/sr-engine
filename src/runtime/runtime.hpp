@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <exec/static_thread_pool.hpp>
+#include <exec/task.hpp>
 
 #include "engine/dsl.hpp"
 #include "engine/error.hpp"
@@ -89,6 +90,10 @@ public:
   /// Execute a previously staged snapshot.
   auto run(const std::shared_ptr<const PlanSnapshot> &snapshot,
            RequestContext &ctx) const -> Expected<ExecResult>;
+
+  /// Execute a previously staged snapshot asynchronously.
+  auto run_async(const std::shared_ptr<const PlanSnapshot> &snapshot,
+                 RequestContext &ctx) const -> exec::task<Expected<ExecResult>>;
 
   /// Start a serve host for a single endpoint.
   auto serve(ServeEndpointConfig config)

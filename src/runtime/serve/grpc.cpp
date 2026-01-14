@@ -79,10 +79,6 @@ public:
     add_op();
     stream_.WriteAndFinish(response_payload_, grpc::WriteOptions{},
                            response_status_, &write_tag_);
-    send_cv_.wait(lock, [this] { return send_completed_; });
-    if (!send_ok_) {
-      return tl::unexpected(make_error("grpc response write failed"));
-    }
     return {};
   }
 
@@ -135,12 +131,7 @@ private:
   }
 
   auto handle_write(bool ok) -> void {
-    {
-      std::lock_guard<std::mutex> lock(send_mutex_);
-      send_completed_ = true;
-      send_ok_ = ok;
-    }
-    send_cv_.notify_all();
+    (void)ok;
     complete_op();
   }
 
@@ -167,10 +158,7 @@ private:
   std::weak_ptr<RequestState> request_state_;
 
   std::mutex send_mutex_;
-  std::condition_variable send_cv_;
   bool send_started_ = false;
-  bool send_completed_ = false;
-  bool send_ok_ = false;
 
   std::atomic<bool> done_{false};
   std::atomic<int> pending_ops_{0};

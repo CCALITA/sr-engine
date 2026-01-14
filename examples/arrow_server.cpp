@@ -420,7 +420,6 @@ int main(int argc, char **argv) {
   flight.location = options->location;
   flight.io_threads = 1;
   endpoint.transport = flight;
-  endpoint.queue_capacity = 0;
   endpoint.request_threads = 1;
   endpoint.max_inflight = 8;
 

@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+add_compile_options(-O3 -fPIC -g -Wno-error)
+set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
+
 if (APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set(SR_ENGINE_GCC_QUICK_EXIT_HEADER
       "${CMAKE_CURRENT_SOURCE_DIR}/src/compat/quick_exit_compat.hpp")
@@ -97,6 +100,13 @@ if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
 
   target_link_libraries(sr_engine_arrow_server PRIVATE sr_engine)
 endif()
+
+find_package(benchmark REQUIRED)
+
+add_executable(sr_engine_benchmarks
+  benchmarks/serve_benchmark.cpp
+)
+target_link_libraries(sr_engine_benchmarks PRIVATE sr_engine benchmark::benchmark)
 
 enable_testing()
 

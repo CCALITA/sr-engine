@@ -343,6 +343,15 @@ auto Runtime::run(const std::shared_ptr<const PlanSnapshot> &snapshot,
   return executor_.run(snapshot->plan, ctx);
 }
 
+auto Runtime::run_async(const std::shared_ptr<const PlanSnapshot> &snapshot,
+                        RequestContext &ctx) const
+    -> exec::task<Expected<ExecResult>> {
+  if (!snapshot) {
+    co_return tl::unexpected(make_error("snapshot is null"));
+  }
+  co_return co_await executor_.run_async(snapshot->plan, ctx);
+}
+
 auto Runtime::serve(ServeEndpointConfig config)
     -> Expected<std::unique_ptr<ServeHost>> {
   ServeLayerConfig layer;

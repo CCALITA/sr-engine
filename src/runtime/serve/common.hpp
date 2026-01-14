@@ -21,47 +21,6 @@ struct RequestState {
   RequestContext ctx;
 };
 
-/// Bounded multi-producer queue used by serve endpoints.
-template <typename T>
-class RequestQueue {
-public:
-  explicit RequestQueue(std::size_t capacity) : capacity_(capacity) {}
-
-  auto push(T value) -> bool {
-    std::unique_lock<std::mutex> lock(mutex_);
-    if (closed_ || (capacity_ > 0 && queue_.size() >= capacity_)) {
-      return false;
-    }
-    queue_.push_back(std::move(value));
-    cv_.notify_one();
-    return true;
-  }
-
-  auto pop(T &out) -> bool {
-    std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [this] { return closed_ || !queue_.empty(); });
-    if (queue_.empty()) {
-      return false;
-    }
-    out = std::move(queue_.front());
-    queue_.pop_front();
-    return true;
-  }
-
-  auto close() -> void {
-    std::unique_lock<std::mutex> lock(mutex_);
-    closed_ = true;
-    cv_.notify_all();
-  }
-
-private:
-  std::size_t capacity_ = 0;
-  std::deque<T> queue_;
-  bool closed_ = false;
-  std::mutex mutex_;
-  std::condition_variable cv_;
-};
-
 /// Helper to ignore transport send results.
 inline auto ignore_send(const Expected<void> &) -> void {}
 inline auto ignore_send(Expected<void> &&) -> void {}

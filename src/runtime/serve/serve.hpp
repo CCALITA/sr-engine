@@ -24,7 +24,6 @@ struct ServeStats {
   std::uint64_t completed = 0;
   std::uint64_t failed = 0;
   std::uint64_t inflight = 0;
-  std::uint64_t queued = 0;
 };
 
 /// Transport configuration for a unary gRPC endpoint.
@@ -83,14 +82,10 @@ struct ServeEndpointConfig {
   ServeGraphSelector graph;
   /// Transport config (gRPC unary or Arrow Flight).
   ServeTransportConfig transport = GrpcServeConfig{};
-  /// Queue dispatcher threads (<=0 uses 1).
-  int dispatch_threads = 1;
-  /// Request scheduler threads (<=0 uses hardware concurrency).
+  /// Request scheduler threads (<=0 uses shared runtime pool).
   int request_threads = 0;
   /// Max in-flight requests (<=0 is unbounded).
   int max_inflight = 1024;
-  /// Pending queue capacity (0 disables the queue).
-  std::size_t queue_capacity = 1024;
   /// Default request timeout when deadlines are unset.
   std::optional<std::chrono::milliseconds> default_deadline;
   /// Graceful shutdown timeout for draining requests.

@@ -488,7 +488,6 @@ int main(int argc, char **argv) {
   ipc.io_threads = 2; // Slight increase for potential concurrency
   ipc.remove_existing = true;
   endpoint.transport = ipc;
-  endpoint.queue_capacity = 0;
   endpoint.request_threads = 4;
   endpoint.max_inflight = 16;
   endpoint.graph.metadata.name_header = "sr-graph-name";

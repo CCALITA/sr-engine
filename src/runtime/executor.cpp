@@ -14,6 +14,7 @@
 
 #include <exec/async_scope.hpp>
 #include <exec/static_thread_pool.hpp>
+#include <exec/task.hpp>
 #include <stdexec/execution.hpp>
 
 namespace sr::engine {
@@ -131,6 +132,7 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
   trace::SpanId run_span = 0;
   trace::Tick run_start = 0;
   std::latch done_latch{1};
+  exec::async_scope node_scope;
 
   auto prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
                exec::static_thread_pool &pool_ref) -> Expected<void>;
@@ -285,7 +287,7 @@ auto DAGStates::schedule_nodes_impl(Range &&node_indices) -> void {
     auto task =
         stdexec::schedule(scheduler) |
         stdexec::then([self, node_index]() { self->execute_node(node_index); });
-    stdexec::start_detached(std::move(task));
+    self->node_scope.spawn(std::move(task));
   }
 }
 
@@ -430,18 +432,18 @@ Executor::Executor(exec::static_thread_pool *pool) : pool_(pool) {}
 
 Executor::~Executor() = default;
 
-auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
-    -> Expected<ExecResult> {
+auto Executor::run_async(const ExecPlan &plan, RequestContext &ctx) const
+    -> exec::task<Expected<ExecResult>> {
   if (!pool_) {
-    return tl::unexpected(make_error("executor missing thread pool"));
+    co_return tl::unexpected(make_error("executor missing thread pool"));
   }
   auto runtime = std::make_shared<DAGStates>();
   if (auto prepared = runtime->prepare(plan, ctx, *pool_); !prepared) {
-    return tl::unexpected(prepared.error());
+    co_return tl::unexpected(prepared.error());
   }
 
   runtime->schedule_initial_nodes();
-  runtime->done_latch.wait();
+  co_await runtime->node_scope.on_empty();
 
   auto emit_run_end = [runtime](trace::SpanStatus status) {
     if constexpr (trace::kTraceEnabled) {
@@ -473,11 +475,21 @@ auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
     }
     emit_run_end(status);
     std::lock_guard<std::mutex> lock(runtime->error_mutex);
-    return tl::unexpected(runtime->error);
+    co_return tl::unexpected(runtime->error);
   }
 
   emit_run_end(trace::SpanStatus::Ok);
-  return collect_outputs(plan, runtime->slots);
+  co_return collect_outputs(plan, runtime->slots);
+}
+
+auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
+    -> Expected<ExecResult> {
+  auto task = run_async(plan, ctx);
+  auto result = stdexec::sync_wait(std::move(task));
+  if (!result) {
+    return tl::unexpected(make_error("execution failed or cancelled"));
+  }
+  return std::move(std::get<0>(*result));
 }
 
 } // namespace sr::engine

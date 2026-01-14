@@ -3,6 +3,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <exception>
 #include <format>
 #include <limits>
 #include <memory>
@@ -22,6 +23,7 @@
 
 #include <exec/async_scope.hpp>
 #include <exec/static_thread_pool.hpp>
+#include <exec/task.hpp>
 #include <stdexec/execution.hpp>
 
 #include "engine/error.hpp"
@@ -146,11 +148,18 @@ public:
 
   ServeEndpoint(Runtime &runtime_ref, ServeEndpointConfig config_ref)
       : runtime(&runtime_ref), config(std::move(config_ref)),
-        request_pool(resolve_request_threads(config)),
         inflight_sem(resolve_inflight_capacity(config)),
-        use_inflight(config.max_inflight > 0),
-        transport_(Traits::make_transport(
-            config, [this](Envelope &&env) { enqueue(std::move(env)); })) {}
+        use_inflight(config.max_inflight > 0) {
+    if (config.request_threads > 0) {
+      owned_pool =
+          std::make_unique<exec::static_thread_pool>(config.request_threads);
+      pool_ = owned_pool.get();
+    } else {
+      pool_ = &runtime->serve_pool();
+    }
+    transport_ = Traits::make_transport(
+        config, [this](Envelope &&env) { enqueue(std::move(env)); });
+  }
 
   auto start() -> Expected<void> override {
     if (config.graph.metadata.name_header.empty()) {
@@ -166,16 +175,6 @@ public:
       return tl::unexpected(ok.error());
     }
 
-    if (config.queue_capacity > 0) {
-      queue = std::make_unique<RequestQueue<Envelope>>(config.queue_capacity);
-      const int threads =
-          config.dispatch_threads > 0 ? config.dispatch_threads : 1;
-      dispatch_threads.reserve(static_cast<std::size_t>(threads));
-      for (int i = 0; i < threads; ++i) {
-        dispatch_threads.emplace_back([this] { dispatch_loop(); });
-      }
-    }
-
     running_.store(true, std::memory_order_release);
     return {};
   }
@@ -185,14 +184,6 @@ public:
       return;
     }
     transport_->shutdown(config.shutdown_timeout);
-    if (queue) {
-      queue->close();
-    }
-    for (auto &thread : dispatch_threads) {
-      if (thread.joinable()) {
-        thread.join();
-      }
-    }
     scope.request_stop();
     running_.store(false, std::memory_order_release);
   }
@@ -206,7 +197,6 @@ public:
     snapshot.completed = completed.load(std::memory_order_relaxed);
     snapshot.failed = failed.load(std::memory_order_relaxed);
     snapshot.inflight = inflight.load(std::memory_order_relaxed);
-    snapshot.queued = queued.load(std::memory_order_relaxed);
     return snapshot;
   }
 
@@ -334,123 +324,107 @@ private:
                      "server shutting down");
       return;
     }
-    if (queue) {
-      if (!queue->push(std::move(env))) {
-        Traits::reject(env, grpc::StatusCode::RESOURCE_EXHAUSTED,
-                       "request queue full");
-        return;
-      }
-      accepted.fetch_add(1, std::memory_order_relaxed);
-      queued.fetch_add(1, std::memory_order_relaxed);
-      return;
-    }
     auto permit = try_acquire_inflight();
     if (!permit) {
       Traits::reject(env, grpc::StatusCode::RESOURCE_EXHAUSTED,
                      "request capacity exceeded");
+      rejected.fetch_add(1, std::memory_order_relaxed);
       return;
     }
     accepted.fetch_add(1, std::memory_order_relaxed);
     schedule(std::move(env), std::move(*permit));
   }
 
-  auto dispatch_loop() -> void {
-    Envelope env;
-    while (queue && queue->pop(env)) {
-      queued.fetch_sub(1, std::memory_order_relaxed);
-      auto permit = acquire_inflight();
-      schedule(std::move(env), std::move(permit));
-    }
-  }
-
   auto schedule(Envelope env, InflightPermit permit) -> void {
-    auto scheduler = request_pool.get_scheduler();
-    auto sender = stdexec::schedule(scheduler) |
-                  stdexec::then([this, env = std::move(env),
-                                 permit = std::move(permit)]() mutable {
-                    handle_request(std::move(env), std::move(permit));
-                  });
-    scope.spawn(std::move(sender));
+    auto scheduler = pool_->get_scheduler();
+    scope.spawn(stdexec::on(
+        scheduler, handle_request(std::move(env), std::move(permit))));
   }
 
-  auto handle_request(Envelope env, [[maybe_unused]] InflightPermit permit)
-      -> void {
+  auto handle_request(Envelope env, InflightPermit permit) -> exec::task<void> {
     RequestOutcome outcome{*this};
     auto fail = [&](grpc::StatusCode code, std::string message) -> void {
       Traits::reject(env, code, std::move(message));
       outcome.mark_failed();
     };
 
-    if (Traits::requires_response(env) && !Traits::responder_available(env)) {
-      fail(grpc::StatusCode::INTERNAL, "request responder missing");
-      return;
-    }
+    try {
+      if (Traits::requires_response(env) && !Traits::responder_available(env)) {
+        fail(grpc::StatusCode::INTERNAL, "request responder missing");
+        co_return;
+      }
 
-    auto request_state = std::make_shared<RequestState>();
-    Traits::attach_request_state(env, request_state);
+      auto request_state = std::make_shared<RequestState>();
+      Traits::attach_request_state(env, request_state);
 
-    auto &ctx = request_state->ctx;
-    ctx.trace.sink = config.trace_sink;
-    ctx.trace.sampler = config.trace_sampler;
-    ctx.trace.clock = config.trace_clock;
-    ctx.trace.flags = config.trace_flags;
-    ctx.trace.trace_id = request_id.fetch_add(1, std::memory_order_relaxed);
-    ctx.trace.next_span.store(1, std::memory_order_relaxed);
+      auto &ctx = request_state->ctx;
+      ctx.trace.sink = config.trace_sink;
+      ctx.trace.sampler = config.trace_sampler;
+      ctx.trace.clock = config.trace_clock;
+      ctx.trace.flags = config.trace_flags;
+      ctx.trace.trace_id = request_id.fetch_add(1, std::memory_order_relaxed);
+      ctx.trace.next_span.store(1, std::memory_order_relaxed);
 
-    ctx.deadline = Traits::deadline(env, config.default_deadline);
-    Traits::prime_cancellation(env, ctx);
+      ctx.deadline = Traits::deadline(env, config.default_deadline);
+      Traits::prime_cancellation(env, ctx);
 
-    if (ctx.should_stop()) {
-      fail(status_from_context(ctx, grpc::StatusCode::CANCELLED),
-           "request cancelled");
-      return;
-    }
+      if (ctx.should_stop()) {
+        fail(status_from_context(ctx, grpc::StatusCode::CANCELLED),
+             "request cancelled");
+        co_return;
+      }
 
-    auto selection = select_graph(env);
-    if (!selection) {
-      fail(grpc::StatusCode::FAILED_PRECONDITION, selection.error().message);
-      return;
-    }
+      auto selection = select_graph(env);
+      if (!selection) {
+        fail(grpc::StatusCode::FAILED_PRECONDITION, selection.error().message);
+        co_return;
+      }
 
-    auto snapshot_result = resolve_snapshot(*selection);
-    if (!snapshot_result) {
-      fail(grpc::StatusCode::NOT_FOUND, snapshot_result.error().message);
-      return;
-    }
-    auto snapshot = std::move(*snapshot_result);
+      auto snapshot_result = resolve_snapshot(*selection);
+      if (!snapshot_result) {
+        fail(grpc::StatusCode::NOT_FOUND, snapshot_result.error().message);
+        co_return;
+      }
+      auto snapshot = std::move(*snapshot_result);
 
-    auto bindings_result = resolve_env_bindings(*snapshot);
-    if (!bindings_result) {
-      fail(grpc::StatusCode::FAILED_PRECONDITION,
-           bindings_result.error().message);
-      return;
-    }
+      auto bindings_result = resolve_env_bindings(*snapshot);
+      if (!bindings_result) {
+        fail(grpc::StatusCode::FAILED_PRECONDITION,
+             bindings_result.error().message);
+        co_return;
+      }
 
-    auto env_result = Traits::populate_env(ctx, env, *bindings_result);
-    if (!env_result) {
-      fail(grpc::StatusCode::FAILED_PRECONDITION, env_result.error().message);
-      return;
-    }
+      auto env_result = Traits::populate_env(ctx, env, *bindings_result);
+      if (!env_result) {
+        fail(grpc::StatusCode::FAILED_PRECONDITION, env_result.error().message);
+        co_return;
+      }
 
-    auto result = runtime->run(snapshot, ctx);
-    if (!result) {
-      fail(status_from_context(ctx, grpc::StatusCode::INTERNAL),
-           result.error().message);
-      return;
-    }
+      auto result = co_await runtime->run_async(snapshot, ctx);
+      if (!result) {
+        fail(status_from_context(ctx, grpc::StatusCode::INTERNAL),
+             result.error().message);
+        co_return;
+      }
 
-    if (!Traits::requires_response(env)) {
-      Traits::complete(env);
-      return;
-    }
+      if (!Traits::requires_response(env)) {
+        Traits::complete(env);
+        co_return;
+      }
 
-    if (!Traits::response_sent(env)) {
-      const auto status =
-          status_from_context(ctx, grpc::StatusCode::FAILED_PRECONDITION);
-      const auto message = ctx.should_stop() ? "request cancelled"
-                                             : "response not sent by graph";
-      fail(status, message);
-      return;
+      if (!Traits::response_sent(env)) {
+        const auto status =
+            status_from_context(ctx, grpc::StatusCode::FAILED_PRECONDITION);
+        const auto message = ctx.should_stop() ? "request cancelled"
+                                               : "response not sent by graph";
+        fail(status, message);
+        co_return;
+      }
+    } catch (const std::exception &e) {
+      fail(grpc::StatusCode::INTERNAL,
+           std::format("internal error: {}", e.what()));
+    } catch (...) {
+      fail(grpc::StatusCode::INTERNAL, "unknown internal error");
     }
   }
 
@@ -477,15 +451,6 @@ private:
     }
   }
 
-  static auto resolve_request_threads(const ServeEndpointConfig &config)
-      -> int {
-    if (config.request_threads > 0) {
-      return config.request_threads;
-    }
-    const auto hw = std::thread::hardware_concurrency();
-    return hw > 0 ? static_cast<int>(hw) : 1;
-  }
-
   static auto resolve_inflight_capacity(const ServeEndpointConfig &config)
       -> int {
     if (config.max_inflight <= 0) {
@@ -496,10 +461,9 @@ private:
 
   Runtime *runtime = nullptr;
   ServeEndpointConfig config;
-  exec::static_thread_pool request_pool;
+  exec::static_thread_pool *pool_ = nullptr;
+  std::unique_ptr<exec::static_thread_pool> owned_pool;
   exec::async_scope scope;
-  std::unique_ptr<RequestQueue<Envelope>> queue;
-  std::vector<std::thread> dispatch_threads;
   std::unique_ptr<Transport> transport_;
   std::atomic<bool> running_{false};
   std::atomic<bool> stopping{false};
@@ -512,7 +476,6 @@ private:
   std::atomic<std::uint64_t> completed{0};
   std::atomic<std::uint64_t> failed{0};
   std::atomic<std::uint64_t> inflight{0};
-  std::atomic<std::uint64_t> queued{0};
   std::counting_semaphore<std::numeric_limits<int>::max()> inflight_sem;
   bool use_inflight = false;
 };

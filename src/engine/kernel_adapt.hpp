@@ -306,19 +306,21 @@ auto read_inputs(const InputValues &inputs) -> decltype(auto) {
 template <typename Tuple, std::size_t... I>
 auto write_tuple_outputs(OutputValues &outputs, Tuple &&tuple,
                          std::index_sequence<I...>) -> void {
-  ([&] {
-    using Arg = std::tuple_element_t<I, std::remove_cvref_t<Tuple>>;
-    auto &&value = std::get<I>(std::forward<Tuple>(tuple));
-    if constexpr (is_optional<Arg>) {
-      if (!value) {
-        return;
-      }
-      outputs.set<output_port_type_t<Arg>>(I, *value);
-    } else {
-      outputs.set<output_port_type_t<Arg>>(I, std::forward<decltype(value)>(value));
-    }
-  }(),
-   ...);
+  (
+      [&] {
+        using Arg = std::tuple_element_t<I, std::remove_cvref_t<Tuple>>;
+        auto &&value = std::get<I>(std::forward<Tuple>(tuple));
+        if constexpr (is_optional<Arg>) {
+          if (!value) {
+            return;
+          }
+          outputs.set<output_port_type_t<Arg>>(I, *value);
+        } else {
+          outputs.set<output_port_type_t<Arg>>(
+              I, std::forward<decltype(value)>(value));
+        }
+      }(),
+      ...);
 }
 
 template <typename R>
@@ -361,8 +363,7 @@ auto handle_return(OutputValues &outputs, R &&value) -> Expected<void> {
 }
 
 template <bool HasCtx, typename Fn, typename Tuple>
-auto apply_kernel(Fn &fn, RequestContext &ctx, Tuple &&args)
-    -> decltype(auto) {
+auto apply_kernel(Fn &fn, RequestContext &ctx, Tuple &&args) -> decltype(auto) {
   if constexpr (HasCtx) {
     return std::apply(
         [&fn, &ctx](auto &&...arg) -> decltype(auto) {
@@ -509,15 +510,13 @@ auto build_signature(const std::vector<std::string> &input_names,
 }
 
 template <typename Fn>
-auto compute_from_fn(void *ptr, RequestContext &ctx,
-                     const InputValues &inputs, OutputValues &outputs)
-    -> Expected<void> {
+auto compute_from_fn(void *ptr, RequestContext &ctx, const InputValues &inputs,
+                     OutputValues &outputs) -> Expected<void> {
   auto &fn = *static_cast<Fn *>(ptr);
   return invoke_kernel(fn, ctx, inputs, outputs);
 }
 
-template <typename Fn>
-auto make_kernel_handle_from_fn(Fn fn) -> KernelHandle {
+template <typename Fn> auto make_kernel_handle_from_fn(Fn fn) -> KernelHandle {
   KernelHandle handle;
 
   handle.instance = std::make_shared<Fn>(std::move(fn));
@@ -526,3 +525,92 @@ auto make_kernel_handle_from_fn(Fn fn) -> KernelHandle {
 }
 
 } // namespace sr::engine::detail
+namespace sr::engine {
+template <typename Initiator, typename Canceller, typename... ResultTypes>
+class AsyncAdapter {
+  Initiator init_;
+  Canceller cancel_;
+
+public:
+  using completion_signatures =
+      ex::completion_signatures<ex::set_value_t(ResultTypes...),
+                                ex::set_error_t(std::exception_ptr),
+                                ex::set_stopped_t()>;
+
+  AsyncAdapter(Initiator init, Canceller cancel)
+      : init_(std::move(init)), cancel_(std::move(cancel)) {}
+
+  template <typename Receiver> auto connect(Receiver r) const {
+    return OperationState<Receiver>(std::move(r), init_, cancel_);
+  }
+
+private:
+  template <typename Receiver> struct OperationState {
+    Receiver receiver_;
+    Initiator init_;
+    Canceller cancel_;
+
+    using NativeHandle = void *;
+    NativeHandle native_handle_ = nullptr;
+
+    using StopToken = ex::stop_token_of_t<ex::env_of_t<Receiver>>;
+    using StopCallback =
+        typename StopToken::template callback_type<std::function<void()>>;
+
+    std::optional<StopCallback> stop_cb_;
+    std::atomic<bool> finished_{false};
+
+    OperationState(Receiver r, Initiator init, Canceller cancel)
+        : receiver_(std::move(r)), init_(std::move(init)),
+          cancel_(std::move(cancel)) {}
+
+    OperationState(OperationState &&) = delete;
+
+    void start() noexcept {
+      try {
+
+        auto env = ex::get_env(receiver_);
+        auto st = ex::get_stop_token(env);
+
+        if (st.stop_requested()) {
+          ex::set_stopped(std::move(receiver_));
+          return;
+        }
+
+        stop_cb_.emplace(st, [this] { this->request_stop(); });
+
+        // 发起调用
+        native_handle_ = init_(this, &OperationState::trampoline);
+
+      } catch (...) {
+        ex::set_error(std::move(receiver_), std::current_exception());
+      }
+    }
+
+    void request_stop() {
+      if (!finished_ && native_handle_) {
+        cancel_(native_handle_);
+      }
+    }
+
+    static void trampoline(void *context, ResultTypes... args) {
+      auto *self = static_cast<OperationState *>(context);
+      self->on_complete(std::forward<ResultTypes>(args)...);
+    }
+
+    void on_complete(ResultTypes... args) {
+      if (finished_.exchange(true))
+        return;
+      stop_cb_.reset();
+
+      ex::set_value(std::move(receiver_), std::forward<ResultTypes>(args)...);
+    }
+  };
+};
+
+template <typename... ResultTypes, typename Init, typename Cancel>
+auto make_async_adapter(Init &&init, Cancel &&cancel) {
+  return AsyncAdapter<std::decay_t<Init>, std::decay_t<Cancel>, ResultTypes...>(
+      std::forward<Init>(init), std::forward<Cancel>(cancel));
+}
+} // namespace sr::engine

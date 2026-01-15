@@ -59,6 +59,7 @@ struct GraphKeyEqual {
   }
 };
 
+[[nodiscard]]
 auto parse_graph_version(std::string_view value) -> Expected<int> {
   int parsed = 0;
   const auto *begin = value.data();
@@ -71,6 +72,7 @@ auto parse_graph_version(std::string_view value) -> Expected<int> {
   return parsed;
 }
 
+[[nodiscard]]
 auto parse_graph_selection(std::optional<std::string_view> name_value,
                            std::optional<std::string_view> version_value,
                            std::string_view missing_message)
@@ -100,6 +102,7 @@ auto register_serve_types() -> void {
 #endif
 }
 
+[[nodiscard]]
 auto to_steady_deadline(
     std::chrono::system_clock::time_point deadline,
     const std::optional<std::chrono::milliseconds> &fallback)
@@ -115,6 +118,7 @@ auto to_steady_deadline(
   return now_steady + (deadline - now_sys);
 }
 
+[[nodiscard]]
 auto status_from_context(const RequestContext &ctx, grpc::StatusCode fallback)
     -> grpc::StatusCode {
   if (ctx.is_cancelled()) {
@@ -504,15 +508,18 @@ struct GrpcTraits {
                                        grpc_config.io_threads);
   }
 
+  [[nodiscard]]
   static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
     return analyze_rpc_env(plan);
   }
 
+  [[nodiscard]]
   static auto populate_env(RequestContext &ctx, Envelope &env,
                            const EnvBindings &bindings) -> Expected<void> {
     return populate_grpc_env(ctx, env, bindings);
   }
 
+  [[nodiscard]]
   static auto select_graph(const ServeEndpointConfig &config,
                            const Envelope &env) -> Expected<GraphSelection> {
     if (!env.context) {
@@ -574,6 +581,43 @@ struct GrpcTraits {
   }
 };
 
+namespace detail {
+
+template <typename Envelope, typename EnvBindings>
+struct RpcTraitsBase {
+  using Bindings = EnvBindings;
+
+  static auto analyze_env(const ExecPlan &plan) -> Expected<Bindings> {
+    return analyze_rpc_env(plan);
+  }
+
+  static auto requires_response(const Envelope &) -> bool { return true; }
+
+  static auto responder_available(const Envelope &env) -> bool {
+    return static_cast<bool>(env.responder);
+  }
+
+  static auto response_sent(const Envelope &env) -> bool {
+    return env.responder && env.responder->sent();
+  }
+
+  static auto complete(Envelope &) -> void {}
+
+  static auto reject(Envelope &env, grpc::StatusCode code, std::string message)
+      -> void {
+    if (env.responder) {
+      ignore_send(
+          env.responder->send(make_error_response(code, std::move(message))));
+    }
+  }
+
+  static auto attach_request_state(Envelope &,
+                                   const std::shared_ptr<RequestState> &)
+      -> void {}
+};
+
+} // namespace detail
+
 struct IpcTraits {
   using Envelope = IpcEnvelope;
   using EnvBindings = RpcEnvBindings;
@@ -603,15 +647,18 @@ struct IpcTraits {
         ipc_config.remove_existing);
   }
 
+  [[nodiscard]]
   static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
     return analyze_rpc_env(plan);
   }
 
+  [[nodiscard]]
   static auto populate_env(RequestContext &ctx, Envelope &env,
                            const EnvBindings &bindings) -> Expected<void> {
     return populate_ipc_env(ctx, env, bindings);
   }
 
+  [[nodiscard]]
   static auto select_graph(const ServeEndpointConfig &config,
                            const Envelope &env) -> Expected<GraphSelection> {
     const auto &metadata = config.graph.metadata;
@@ -626,6 +673,7 @@ struct IpcTraits {
                                  "request missing graph name metadata");
   }
 
+  [[nodiscard]]
   static auto deadline(const Envelope &,
                        const std::optional<std::chrono::milliseconds> &fallback)
       -> std::chrono::steady_clock::time_point {
@@ -687,15 +735,18 @@ struct FlightTraits {
         std::move(callback), flight_config.location, flight_config.io_threads);
   }
 
+  [[nodiscard]]
   static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
     return analyze_flight_env(plan);
   }
 
+  [[nodiscard]]
   static auto populate_env(RequestContext &ctx, Envelope &env,
                            const EnvBindings &bindings) -> Expected<void> {
     return populate_flight_env(ctx, env, bindings);
   }
 
+  [[nodiscard]]
   static auto select_graph(const ServeEndpointConfig &config,
                            const Envelope &env) -> Expected<GraphSelection> {
     if (!env.context) {
@@ -713,6 +764,7 @@ struct FlightTraits {
                                  "request missing graph name metadata");
   }
 
+  [[nodiscard]]
   static auto deadline(const Envelope &env,
                        const std::optional<std::chrono::milliseconds> &fallback)
       -> std::chrono::steady_clock::time_point {

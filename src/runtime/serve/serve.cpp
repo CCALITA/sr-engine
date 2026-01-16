@@ -797,8 +797,8 @@ struct FlightTraits final {
   }
 
   static auto response_sent(const Envelope &env) -> bool {
-    return static_cast<bool>(env.responder) && env.responder.sent &&
-           env.responder.sent();
+    return static_cast<bool>(env.responder) && env.responder->sent() &&
+           env.responder->sent();
   }
 
   static auto complete(Envelope &env) -> void {

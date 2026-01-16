@@ -17,6 +17,8 @@
 #include <exec/task.hpp>
 #include <stdexec/execution.hpp>
 
+#include "runtime/frozen_env.hpp"
+
 namespace sr::engine {
 namespace {
 
@@ -40,26 +42,6 @@ auto collect_outputs(const ExecPlan &plan, const std::vector<ValueBox> &slots)
     result.outputs.emplace(output.name, slot);
   }
   return result;
-}
-
-auto prepare_env_boxes(const ExecPlan &plan, const RequestContext &ctx,
-                       std::vector<ValueBox> &boxes) -> Expected<void> {
-  boxes.clear();
-  boxes.resize(plan.env_requirements.size());
-  for (std::size_t i = 0; i < plan.env_requirements.size(); ++i) {
-    const auto &req = plan.env_requirements[i];
-    auto it = ctx.env.find(req.key);
-    if (it == ctx.env.end()) {
-      return tl::unexpected(
-          make_error(std::format("missing env value: {}", req.key)));
-    }
-    if (req.type && it->second.type != req.type) {
-      return tl::unexpected(
-          make_error(std::format("env type mismatch: {}", req.key)));
-    }
-    boxes[i] = it->second;
-  }
-  return {};
 }
 
 auto check_request_state(const RequestContext &ctx) -> Expected<void> {
@@ -117,7 +99,7 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
 
   std::vector<ValueBox> slots;
   std::vector<NodeBindings> node_bindings;
-  std::vector<ValueBox> env_boxes;
+  FrozenEnv frozen_env;
   std::vector<const ValueBox *> input_refs;
   std::vector<ValueBox *> output_ptrs;
   std::vector<trace::Tick> enqueue_ticks;
@@ -146,6 +128,8 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
   auto finish_node() -> void;
   auto record_error(std::string message) -> void;
 
+  [[nodiscard]] auto env() const -> const FrozenEnv & { return frozen_env; }
+
   /// Check if a node should be executed inline on the current thread.
   auto should_inline(int node_index, int current_depth) const -> bool;
   /// Execute a node inline (tail-call style continuation).
@@ -166,10 +150,10 @@ auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
   if (auto state = check_request_state(ctx_ref); !state) {
     return tl::unexpected(state.error());
   }
-  if (auto env_result = prepare_env_boxes(plan_ref, ctx_ref, env_boxes);
-      !env_result) {
-    return tl::unexpected(env_result.error());
-  }
+
+  frozen_env = prepare_env_from_context(ctx_ref);
+  ctx_ref.frozen_env = &frozen_env;
+
   reset_slots(plan_ref, slots);
 
   const std::size_t node_count = plan_ref.nodes.size();
@@ -232,9 +216,10 @@ auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
         break;
       }
       case InputBindingKind::Env: {
-        std::size_t env_index = static_cast<std::size_t>(binding.env_index);
-        assert(env_index < env_boxes.size());
-        input_refs.push_back(&env_boxes[env_index]);
+        const auto &req = plan_ref.env_requirements[static_cast<std::size_t>(binding.env_index)];
+        const auto *value = frozen_env.find(std::string_view(req.key));
+        assert(value && "env binding not found - this is a bug in prepare");
+        input_refs.push_back(value);
         break;
       }
       }
@@ -577,6 +562,7 @@ auto Executor::run_async(const ExecPlan &plan, RequestContext &ctx) const
   };
 
   if (runtime->has_error.load(std::memory_order_acquire)) {
+    ctx.frozen_env = nullptr;
     trace::SpanStatus status = trace::SpanStatus::Error;
     if (ctx.is_cancelled()) {
       status = trace::SpanStatus::Cancelled;
@@ -588,6 +574,7 @@ auto Executor::run_async(const ExecPlan &plan, RequestContext &ctx) const
     co_return tl::unexpected(runtime->error);
   }
 
+  ctx.frozen_env = nullptr;
   emit_run_end(trace::SpanStatus::Ok);
   co_return collect_outputs(plan, runtime->slots);
 }

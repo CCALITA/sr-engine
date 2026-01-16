@@ -21,6 +21,7 @@
 #include "reflection/json.hpp"
 
 namespace sr::engine {
+class FrozenEnv;
 
 /// JSON type used by the DSL and kernel parameters.
 using Json = nlohmann::json;
@@ -138,12 +139,12 @@ private:
 };
 /// Per-request mutable state (env values, cancellation, tracing).
 struct RequestContext {
-  //
   std::unordered_map<std::string, ValueBox> env;
   std::chrono::steady_clock::time_point deadline{
       std::chrono::steady_clock::time_point::max()};
   std::atomic<bool> cancelled{false};
   trace::TraceContext trace;
+  const class FrozenEnv *frozen_env = nullptr;
 
   template <typename T> auto set_env(std::string key, T value) -> void {
     ValueBox slot;

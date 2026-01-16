@@ -5,6 +5,7 @@
 #include "engine/error.hpp"
 #include "engine/plan.hpp"
 #include "engine/types.hpp"
+#include "runtime/frozen_env.hpp"
 
 namespace exec {
 class static_thread_pool;

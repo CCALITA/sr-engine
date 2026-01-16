@@ -6,6 +6,9 @@
 #include <format>
 #include <unordered_set>
 
+#include "engine/plan.hpp"
+#include "runtime/frozen_env.hpp"
+
 namespace sr::engine {
 namespace {
 
@@ -180,20 +183,24 @@ auto build_stage_inputs(const FusedStage& stage,
                         RequestContext& ctx,
                         std::vector<const ValueBox*>& merged_refs,
                         std::vector<ValueBox>& env_boxes) -> Expected<void> {
-  // Lookup env values
+  // Lookup env values from frozen_env
   env_boxes.clear();
   env_boxes.reserve(stage.env_bindings.size());
+  const FrozenEnv* frozen = ctx.frozen_env;
   for (const auto& eb : stage.env_bindings) {
-    auto it = ctx.env.find(eb.key);
-    if (it == ctx.env.end()) {
+    const ValueBox* value = nullptr;
+    if (frozen) {
+      value = frozen->find(eb.key);
+    }
+    if (!value) {
       return tl::unexpected(
           make_error(std::format("missing env value in fused kernel: {}", eb.key)));
     }
-    if (eb.type && it->second.type != eb.type) {
+    if (eb.type && value->type != eb.type) {
       return tl::unexpected(
           make_error(std::format("env type mismatch in fused kernel: {}", eb.key)));
     }
-    env_boxes.push_back(it->second);
+    env_boxes.push_back(*value);
   }
   
   // Calculate total input count

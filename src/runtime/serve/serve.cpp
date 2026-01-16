@@ -835,7 +835,7 @@ auto normalize_endpoint_names(ServeLayerConfig &config) -> void {
 
 namespace sr::engine {
 
-struct ServeHost::State {
+struct ServeHost::State final {
   explicit State(Runtime &runtime_ref, ServeLayerConfig config_ref)
       : runtime(&runtime_ref), config(std::move(config_ref)) {}
 

@@ -196,18 +196,11 @@ auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
     }
   }
 
-  std::size_t total_inputs = 0;
-  std::size_t total_outputs = 0;
-  for (const auto &node : plan_ref.nodes) {
-    total_inputs += node.inputs.size();
-    total_outputs += node.outputs.size();
-  }
-
   node_bindings.resize(node_count);
   input_refs.clear();
   output_ptrs.clear();
-  input_refs.reserve(total_inputs);
-  output_ptrs.reserve(total_outputs);
+  input_refs.reserve(node_count * 2);
+  output_ptrs.reserve(node_count * 2);
   for (std::size_t node_index = 0; node_index < node_count; ++node_index) {
     const auto &node = plan_ref.nodes[node_index];
     auto &runtime = node_bindings[node_index];
@@ -398,15 +391,24 @@ auto DAGStates::execute_node(int node_index) -> void {
 auto DAGStates::complete_node(int node_index) -> void {
   const auto &dependents =
       plan->dependents[static_cast<std::size_t>(node_index)];
-  std::vector<int> ready;
-  ready.reserve(dependents.size());
+  int ready_storage[8];
+  int *ready_ptr = ready_storage;
+  int ready_count = 0;
+  if (dependents.size() > 8) {
+    ready_ptr = new int[dependents.size()];
+  }
   for (int dependent : dependents) {
     if (node_states[static_cast<std::size_t>(dependent)].pending.fetch_sub(
             1, std::memory_order_acq_rel) == 1) {
-      ready.push_back(dependent);
+      ready_ptr[ready_count++] = dependent;
     }
   }
-  schedule_nodes(std::move(ready));
+  if (ready_count > 0) {
+    schedule_nodes(std::span<int>(ready_ptr, static_cast<std::size_t>(ready_count)));
+  }
+  if (dependents.size() > 8) {
+    delete[] ready_ptr;
+  }
   finish_node();
 }
 

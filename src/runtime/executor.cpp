@@ -113,6 +113,7 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
   RequestContext *ctx = nullptr;
   trace::TraceContext *trace = nullptr;
   exec::static_thread_pool *pool = nullptr;
+  const ExecutorConfig *config = nullptr;
 
   std::vector<ValueBox> slots;
   std::vector<NodeBindings> node_bindings;
@@ -135,24 +136,32 @@ struct DAGStates : std::enable_shared_from_this<DAGStates> {
   exec::async_scope node_scope;
 
   auto prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
-               exec::static_thread_pool &pool_ref) -> Expected<void>;
+               exec::static_thread_pool &pool_ref,
+               const ExecutorConfig &config_ref) -> Expected<void>;
   auto schedule_initial_nodes() -> void;
   auto schedule_nodes(std::span<const int> node_indices) -> void;
   auto schedule_nodes(std::vector<int> node_indices) -> void;
-  auto execute_node(int node_index) -> void;
-  auto complete_node(int node_index) -> void;
+  auto execute_node(int node_index, int inline_depth = 0) -> void;
+  auto complete_node(int node_index, int inline_depth = 0) -> void;
   auto finish_node() -> void;
   auto record_error(std::string message) -> void;
+
+  /// Check if a node should be executed inline on the current thread.
+  auto should_inline(int node_index, int current_depth) const -> bool;
+  /// Execute a node inline (tail-call style continuation).
+  auto execute_node_inline(int node_index, int inline_depth, int parent_node = -1) -> void;
 
   template <class Range> auto schedule_nodes_impl(Range &&node_indices) -> void;
 };
 
 auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
-                        exec::static_thread_pool &pool_ref) -> Expected<void> {
+                        exec::static_thread_pool &pool_ref,
+                        const ExecutorConfig &config_ref) -> Expected<void> {
   plan = &plan_ref;
   ctx = &ctx_ref;
   trace = &ctx_ref.trace;
   pool = &pool_ref;
+  config = &config_ref;
 
   if (auto state = check_request_state(ctx_ref); !state) {
     return tl::unexpected(state.error());
@@ -299,7 +308,65 @@ auto DAGStates::schedule_nodes(std::vector<int> node_indices) -> void {
   schedule_nodes_impl(std::move(node_indices));
 }
 
-auto DAGStates::execute_node(int node_index) -> void {
+auto DAGStates::should_inline(int node_index, int current_depth) const -> bool {
+  if (!config || !config->enable_inline_execution) {
+    return false;
+  }
+  if (current_depth >= config->max_inline_depth) {
+    return false;
+  }
+  
+  const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
+  
+  // Check kernel trait NeverInline
+  if (has_trait(node.kernel.traits, KernelTraits::NeverInline)) {
+    return false;
+  }
+  
+  // Check DSL-level opt-out
+  if (!node.inline_eligible) {
+    return false;
+  }
+  
+  // Check kernel trait InlineHint (always inline if set)
+  if (has_trait(node.kernel.traits, KernelTraits::InlineHint)) {
+    return true;
+  }
+  
+  // Use kernel's estimated cost if available
+  std::uint64_t cost_ns = 0;
+  if (node.kernel.estimated_cost_us > 0) {
+    cost_ns = static_cast<std::uint64_t>(node.kernel.estimated_cost_us) * 1000;
+  } else if (node.estimated_cost > 0) {
+    cost_ns = static_cast<std::uint64_t>(node.estimated_cost) * 1000;
+  }
+  
+  // If we have a cost estimate, check against threshold
+  if (cost_ns > 0) {
+    return cost_ns < config->inline_threshold_ns;
+  }
+  
+  // No cost info available - default to not inlining
+  return false;
+}
+
+auto DAGStates::execute_node_inline(int node_index, int inline_depth, int parent_node) -> void {
+  // Emit inline trace event
+  if constexpr (trace::kTraceEnabled) {
+    if (trace && trace_flags != 0 &&
+        trace::has_flag(trace_flags, trace::TraceFlag::InlineDetail)) {
+      const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
+      trace::emit(trace->sink, trace::NodeInlined{
+        trace_id, trace->new_span(), node.id, node_index,
+        parent_node, inline_depth
+      });
+    }
+  }
+  
+  execute_node(node_index, inline_depth);
+}
+
+auto DAGStates::execute_node(int node_index, int inline_depth) -> void {
   auto &ctx_ref = *ctx;
   const auto &node = plan->nodes[static_cast<std::size_t>(node_index)];
   const auto &runtime = node_bindings[static_cast<std::size_t>(node_index)];
@@ -315,7 +382,9 @@ auto DAGStates::execute_node(int node_index) -> void {
                     trace::NodeStart{trace_id, span_id, run_span, node.id,
                                      node_index, start_ts});
       }
-      if (trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay) &&
+      // Only emit QueueDelay for non-inlined nodes (inline_depth == 0)
+      if (inline_depth == 0 &&
+          trace::has_flag(trace_flags, trace::TraceFlag::QueueDelay) &&
           static_cast<std::size_t>(node_index) < enqueue_ticks.size()) {
         trace::Tick delay_start = start_ts ? start_ts : trace->now();
         trace::emit(trace->sink,
@@ -352,21 +421,21 @@ auto DAGStates::execute_node(int node_index) -> void {
 
   if (aborted.load(std::memory_order_acquire)) {
     finish_trace(trace::SpanStatus::Skipped, {});
-    complete_node(node_index);
+    complete_node(node_index, inline_depth);
     return;
   }
 
   if (ctx_ref.is_cancelled()) {
     record_error("request cancelled");
     finish_trace(trace::SpanStatus::Cancelled, {});
-    complete_node(node_index);
+    complete_node(node_index, inline_depth);
     return;
   }
 
   if (ctx_ref.deadline_exceeded()) {
     record_error("deadline exceeded");
     finish_trace(trace::SpanStatus::Deadline, {});
-    complete_node(node_index);
+    complete_node(node_index, inline_depth);
     return;
   }
 
@@ -380,17 +449,19 @@ auto DAGStates::execute_node(int node_index) -> void {
     std::string message = result.error().message;
     finish_trace(trace::SpanStatus::Error, message);
     record_error(std::move(message));
-    complete_node(node_index);
+    complete_node(node_index, inline_depth);
     return;
   }
 
   finish_trace(trace::SpanStatus::Ok, {});
-  complete_node(node_index);
+  complete_node(node_index, inline_depth);
 }
 
-auto DAGStates::complete_node(int node_index) -> void {
+auto DAGStates::complete_node(int node_index, int inline_depth) -> void {
   const auto &dependents =
       plan->dependents[static_cast<std::size_t>(node_index)];
+  
+  // Collect ready nodes
   int ready_storage[8];
   int *ready_ptr = ready_storage;
   int ready_count = 0;
@@ -403,13 +474,47 @@ auto DAGStates::complete_node(int node_index) -> void {
       ready_ptr[ready_count++] = dependent;
     }
   }
+  
+  if (ready_count == 0) {
+    if (dependents.size() > 8) {
+      delete[] ready_ptr;
+    }
+    finish_node();
+    return;
+  }
+  
+  // Inline execution optimization: if single ready node and cheap, inline it
+  int inline_candidate = -1;
+  if (ready_count == 1 && should_inline(ready_ptr[0], inline_depth)) {
+    inline_candidate = ready_ptr[0];
+    ready_count = 0;  // Don't schedule it
+  } else if (ready_count > 1 && config && config->enable_inline_execution) {
+    // Multiple ready nodes: maybe inline the first one
+    if (should_inline(ready_ptr[0], inline_depth)) {
+      inline_candidate = ready_ptr[0];
+      // Shift array
+      for (int i = 0; i < ready_count - 1; ++i) {
+        ready_ptr[i] = ready_ptr[i + 1];
+      }
+      --ready_count;
+    }
+  }
+  
+  // Schedule remaining nodes via pool
   if (ready_count > 0) {
     schedule_nodes(std::span<int>(ready_ptr, static_cast<std::size_t>(ready_count)));
   }
+  
   if (dependents.size() > 8) {
     delete[] ready_ptr;
   }
+  
   finish_node();
+  
+  // Execute inline candidate last (after finish_node for correctness)
+  if (inline_candidate >= 0) {
+    execute_node_inline(inline_candidate, inline_depth + 1, node_index);
+  }
 }
 
 auto DAGStates::finish_node() -> void {
@@ -428,9 +533,12 @@ auto DAGStates::record_error(std::string message) -> void {
   aborted.store(true, std::memory_order_release);
 }
 
-} // namespace
+} // namespace (anonymous)
 
-Executor::Executor(exec::static_thread_pool *pool) : pool_(pool) {}
+Executor::Executor(exec::static_thread_pool *pool) : pool_(pool), config_() {}
+
+Executor::Executor(exec::static_thread_pool *pool, ExecutorConfig config)
+    : pool_(pool), config_(std::move(config)) {}
 
 Executor::~Executor() = default;
 
@@ -440,7 +548,7 @@ auto Executor::run_async(const ExecPlan &plan, RequestContext &ctx) const
     co_return tl::unexpected(make_error("executor missing thread pool"));
   }
   auto runtime = std::make_shared<DAGStates>();
-  if (auto prepared = runtime->prepare(plan, ctx, *pool_); !prepared) {
+  if (auto prepared = runtime->prepare(plan, ctx, *pool_, config_); !prepared) {
     co_return tl::unexpected(prepared.error());
   }
 

@@ -6,6 +6,8 @@
 #include <string_view>
 #include <unordered_set>
 
+#include "engine/fusion.hpp"
+
 namespace sr::engine {
 namespace {
 
@@ -405,7 +407,7 @@ struct PlanBuilder {
     return {};
   }
 
-  auto build_plan(std::vector<int> topo) -> Expected<ExecPlan> {
+  auto build_plan(std::vector<int> topo, const CompileOptions &options) -> Expected<ExecPlan> {
     ExecPlan plan;
     plan.name = graph.name;
     plan.slots = std::move(slots);
@@ -424,6 +426,13 @@ struct PlanBuilder {
       node.kernel = std::move(build.kernel);
       node.inputs = std::move(build.inputs);
       node.outputs = std::move(build.outputs);
+      
+      // Populate scheduling hints from kernel traits
+      if (options.enable_inline_hints) {
+        node.inline_eligible = !has_trait(node.kernel.traits, KernelTraits::NeverInline);
+        node.estimated_cost = node.kernel.estimated_cost_us;
+      }
+      
       plan.nodes.push_back(std::move(node));
     }
 
@@ -440,6 +449,16 @@ struct PlanBuilder {
     if (auto dependents_result = build_dependents(plan); !dependents_result) {
       return tl::unexpected(dependents_result.error());
     }
+    
+    // Populate continuation hints after dependents are built
+    if (options.enable_continuation_hints) {
+      for (std::size_t i = 0; i < plan.nodes.size(); ++i) {
+        const auto &deps = plan.dependents[i];
+        if (deps.size() == 1) {
+          plan.nodes[i].single_continuation = deps[0];
+        }
+      }
+    }
 
     return plan;
   }
@@ -449,6 +468,11 @@ struct PlanBuilder {
 
 auto compile_plan(const GraphDef &graph, const KernelRegistry &registry)
     -> Expected<ExecPlan> {
+  return compile_plan(graph, registry, CompileOptions{});
+}
+
+auto compile_plan(const GraphDef &graph, const KernelRegistry &registry,
+                  const CompileOptions &options) -> Expected<ExecPlan> {
   if (graph.nodes.empty()) {
     return tl::unexpected(make_error("graph has no nodes"));
   }
@@ -467,7 +491,19 @@ auto compile_plan(const GraphDef &graph, const KernelRegistry &registry)
   if (!topo) {
     return tl::unexpected(topo.error());
   }
-  return builder.build_plan(std::move(*topo));
+  auto plan = builder.build_plan(std::move(*topo), options);
+  if (!plan) {
+    return plan;
+  }
+  
+  // Apply fusion pass if enabled
+  if (options.fusion.enabled) {
+    if (auto fusion_result = apply_fusion_pass(*plan, options.fusion); !fusion_result) {
+      return tl::unexpected(fusion_result.error());
+    }
+  }
+  
+  return plan;
 }
 
 } // namespace sr::engine

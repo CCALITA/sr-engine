@@ -83,11 +83,17 @@ public:
   /// Register a stateless kernel callable (must be noexcept; inputs/outputs
   /// come from the DSL).
   template <detail::KernelFn Fn>
-  auto register_kernel(std::string name, Fn fn) -> void {
+  auto register_kernel(std::string name, Fn fn,
+                       KernelTraits traits = KernelTraits::None,
+                       std::uint32_t estimated_cost_us = 0) -> void {
     auto inputs = std::vector<std::string>{};
     auto outputs = std::vector<std::string>{};
     auto spec =
         detail::make_kernel_spec_from_fn(std::move(fn), inputs, outputs);
+    if (spec) {
+      spec->handle.traits = traits;
+      spec->handle.estimated_cost_us = estimated_cost_us;
+    }
     register_factory(
         std::move(name),
         [spec = std::move(spec)](const Json &) mutable -> Expected<KernelSpec> {

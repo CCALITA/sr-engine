@@ -16,17 +16,8 @@
 
 namespace sr::engine::serve {
 
-/// In-flight IPC request envelope handed to the serve layer.
-struct IpcEnvelope {
-  std::string method;
-  grpc::ByteBuffer payload;
-  kernel::rpc::RpcMetadata metadata;
-  std::shared_ptr<class IpcResponder> responder;
-  std::string peer;
-};
-
 /// Response sink for IPC requests.
-class IpcResponder final : public kernel::rpc::RpcResponder {
+class IpcResponder final {
 public:
   explicit IpcResponder(int fd);
   ~IpcResponder();
@@ -34,8 +25,7 @@ public:
   IpcResponder(const IpcResponder &) = delete;
   IpcResponder &operator=(const IpcResponder &) = delete;
 
-  auto send(kernel::rpc::RpcResponse response) noexcept
-      -> Expected<void> override;
+  auto send(kernel::rpc::RpcResponse response) noexcept -> Expected<void>;
 
   auto sent() const -> bool { return sent_.load(std::memory_order_acquire); }
 
@@ -45,6 +35,29 @@ private:
   int fd_ = -1;
   std::atomic<bool> sent_{false};
   std::mutex send_mutex_;
+};
+
+inline auto to_rpc_responder(const std::shared_ptr<IpcResponder>& responder)
+    -> kernel::rpc::RpcResponder {
+  return kernel::rpc::RpcResponder{
+      .send = [responder](kernel::rpc::RpcResponse resp) -> sr::engine::Expected<void> {
+          return responder->send(std::move(resp));
+      },
+      .attach_request_state = nullptr,
+      .sent = [responder]() -> bool {
+          return responder->sent();
+      }
+  };
+}
+
+/// In-flight IPC request envelope handed to the serve layer.
+struct IpcEnvelope {
+  std::string method;
+  grpc::ByteBuffer payload;
+  kernel::rpc::RpcMetadata metadata;
+  kernel::rpc::RpcResponder responder;
+  std::shared_ptr<IpcResponder> responder_ptr;
+  std::string peer;
 };
 
 /// Unix domain socket transport for unary IPC requests.

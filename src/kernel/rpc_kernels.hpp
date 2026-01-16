@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,13 +37,30 @@ struct RpcResponse {
   RpcMetadata trailing_metadata;
 };
 
-/// Response sink interface used by rpc_server_output.
-class RpcResponder {
-public:
-  virtual ~RpcResponder() = default;
-  /// Send a response back to the transport; implementers must be noexcept.
-  virtual auto send(RpcResponse response) noexcept
-      -> sr::engine::Expected<void> = 0;
+/// Type-erased response sink used by rpc_server_output.
+struct RpcResponder {
+  using Callback = std::function<sr::engine::Expected<void>(RpcResponse)>;
+  using AttachCallback = std::function<void(void*)>;
+  using SentCallback = std::function<bool()>;
+
+  Callback send;
+  AttachCallback attach_request_state;
+  SentCallback sent;
+
+  auto operator()(RpcResponse response) const
+      -> sr::engine::Expected<void> {
+    return send(response);
+  }
+
+  auto operator()(RpcResponse response, grpc::StatusCode code,
+                  std::string message) const -> sr::engine::Expected<void> {
+    RpcResponse resp = std::move(response);
+    resp.status.code = code;
+    resp.status.message = std::move(message);
+    return send(resp);
+  }
+
+  explicit operator bool() const { return static_cast<bool>(send); }
 };
 
 /// Per-request server call handle injected via env binding.
@@ -50,7 +68,7 @@ struct RpcServerCall {
   std::string method;
   grpc::ByteBuffer request;
   RpcMetadata metadata;
-  std::shared_ptr<RpcResponder> responder;
+  RpcResponder responder;
 };
 
 } // namespace sr::kernel::rpc

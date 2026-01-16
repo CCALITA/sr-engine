@@ -1,23 +1,65 @@
 #include "kernel/rpc_kernels.hpp"
 #include "engine/error.hpp"
 
+#include <algorithm>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <condition_variable>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <format>
+#include <future>
+#include <latch>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
 
+#include <exec/async_scope.hpp>
+#include <exec/static_thread_pool.hpp>
+#include <stdexec/execution.hpp>
+
 namespace sr::kernel {
 namespace {
+
+std::unique_ptr<exec::static_thread_pool> g_rpc_thread_pool;
+std::once_flag g_rpc_pool_init;
+
+auto get_rpc_thread_pool() -> exec::static_thread_pool & {
+  std::call_once(g_rpc_pool_init, []() {
+    g_rpc_thread_pool = std::make_unique<exec::static_thread_pool>(
+        std::max(2u, std::thread::hardware_concurrency()));
+  });
+  return *g_rpc_thread_pool;
+}
+
+auto get_rpc_scheduler() {
+  return get_rpc_thread_pool().get_scheduler();
+}
+
+template <typename F>
+auto parallel_for(std::size_t count, F &&func) -> void {
+  if (count == 0) {
+    return;
+  }
+
+  auto scheduler = get_rpc_scheduler();
+
+  stdexec::sender auto sender =
+      stdexec::on(scheduler, stdexec::just()) |
+      stdexec::bulk(stdexec::par, count, [&func](std::size_t index) {
+        func(index);
+      });
+
+  stdexec::sync_wait(std::move(sender));
+}
 
 using sr::engine::Expected;
 using sr::engine::Json;
@@ -35,8 +77,7 @@ auto get_int_param(const Json &params, const char *key, int64_t fallback)
   return fallback;
 }
 
-auto get_bool_param(const Json &params, const char *key, bool fallback)
-    -> bool {
+auto get_bool_param(const Json &params, const char *key, bool fallback) -> bool {
   if (!params.is_object()) {
     return fallback;
   }
@@ -47,8 +88,8 @@ auto get_bool_param(const Json &params, const char *key, bool fallback)
   return fallback;
 }
 
-auto get_string_param(const Json &params, const char *key, std::string fallback)
-    -> std::string {
+auto get_string_param(const Json &params, const char *key,
+                      std::string fallback) -> std::string {
   if (!params.is_object()) {
     return fallback;
   }
@@ -127,7 +168,6 @@ auto clone_byte_buffer(const grpc::ByteBuffer &buffer) -> grpc::ByteBuffer {
 constexpr std::size_t kShardHeaderSize =
     sizeof(std::uint32_t) * 2 + sizeof(std::uint64_t);
 
-/// Append a little-endian 32-bit value to a byte string.
 auto append_u32_le(std::string &out, std::uint32_t value) -> void {
   for (int i = 0; i < 4; ++i) {
     out.push_back(static_cast<char>(value & 0xFFu));
@@ -135,7 +175,6 @@ auto append_u32_le(std::string &out, std::uint32_t value) -> void {
   }
 }
 
-/// Append a little-endian 64-bit value to a byte string.
 auto append_u64_le(std::string &out, std::uint64_t value) -> void {
   for (int i = 0; i < 8; ++i) {
     out.push_back(static_cast<char>(value & 0xFFu));
@@ -143,7 +182,6 @@ auto append_u64_le(std::string &out, std::uint64_t value) -> void {
   }
 }
 
-/// Read a 32-bit little-endian value from raw bytes.
 auto read_u32_le(const unsigned char *data) -> std::uint32_t {
   std::uint32_t value = 0;
   for (int i = 3; i >= 0; --i) {
@@ -152,7 +190,6 @@ auto read_u32_le(const unsigned char *data) -> std::uint32_t {
   return value;
 }
 
-/// Read a 64-bit little-endian value from raw bytes.
 auto read_u64_le(const unsigned char *data) -> std::uint64_t {
   std::uint64_t value = 0;
   for (int i = 7; i >= 0; --i) {
@@ -161,7 +198,6 @@ auto read_u64_le(const unsigned char *data) -> std::uint64_t {
   return value;
 }
 
-/// Encode a shard header into a ByteBuffer payload.
 auto encode_shard_payload(std::uint32_t part_index, std::uint32_t part_count,
                           std::int64_t value) -> grpc::ByteBuffer {
   std::string data;
@@ -172,14 +208,12 @@ auto encode_shard_payload(std::uint32_t part_index, std::uint32_t part_count,
   return string_to_byte_buffer(data);
 }
 
-/// Decoded shard metadata extracted from an RPC payload.
 struct DecodedShard {
   std::uint32_t index = 0;
   std::uint32_t count = 0;
   std::int64_t value = 0;
 };
 
-/// Decode a shard header from a ByteBuffer payload.
 auto decode_shard_payload(const grpc::ByteBuffer &buffer)
     -> Expected<DecodedShard> {
   const auto data = byte_buffer_to_string(buffer);
@@ -195,7 +229,6 @@ auto decode_shard_payload(const grpc::ByteBuffer &buffer)
   return decoded;
 }
 
-/// Evenly split an int64 across a fixed number of parts.
 auto split_i64_even(std::int64_t value, std::uint32_t parts)
     -> std::vector<std::int64_t> {
   std::vector<std::int64_t> out;
@@ -215,7 +248,130 @@ auto split_i64_even(std::int64_t value, std::uint32_t parts)
   return out;
 }
 
-/// Perform a unary RPC call using grpc::GenericStub.
+struct RetryConfig {
+  std::uint32_t max_attempts = 3;
+  std::chrono::milliseconds base_delay = std::chrono::milliseconds(100);
+  double max_delay_factor = 4.0;
+  std::vector<grpc::StatusCode> retryable_codes = {
+      grpc::StatusCode::UNAVAILABLE,
+      grpc::StatusCode::DEADLINE_EXCEEDED,
+      grpc::StatusCode::INTERNAL,
+  };
+};
+
+struct RpcMetrics {
+  std::atomic<std::uint64_t> total_requests{0};
+  std::atomic<std::uint64_t> successful_requests{0};
+  std::atomic<std::uint64_t> failed_requests{0};
+  std::atomic<std::uint64_t> retries_total{0};
+  std::atomic<std::uint64_t> retries_success{0};
+  std::atomic<std::chrono::microseconds::rep> total_latency_us{0};
+
+  auto record_request(std::chrono::microseconds latency, bool success,
+                      std::uint32_t retries) -> void {
+    ++total_requests;
+    if (success) {
+      ++successful_requests;
+    } else {
+      ++failed_requests;
+    }
+    retries_total += retries;
+    if (success && retries > 0) {
+      ++retries_success;
+    }
+    total_latency_us.fetch_add(latency.count(), std::memory_order_relaxed);
+  }
+
+  auto average_latency_ms() const -> double {
+    auto total = total_requests.load(std::memory_order_acquire);
+    if (total == 0) {
+      return 0.0;
+    }
+    auto latency_us =
+        total_latency_us.load(std::memory_order_acquire);
+    return static_cast<double>(latency_us) / 1000.0 /
+           static_cast<double>(total);
+  }
+
+  auto success_rate() const -> double {
+    auto total = total_requests.load(std::memory_order_acquire);
+    if (total == 0) {
+      return 1.0;
+    }
+    auto success =
+        successful_requests.load(std::memory_order_acquire);
+    return static_cast<double>(success) / static_cast<double>(total);
+  }
+};
+
+struct KeepaliveConfig {
+  std::chrono::seconds keepalive_time = std::chrono::seconds(30);
+  std::chrono::seconds keepalive_timeout = std::chrono::seconds(10);
+  std::uint32_t keepalive_permit_without_calls = 1;
+  std::uint32_t max_pings_without_data = 2;
+};
+
+auto build_channel_args(const KeepaliveConfig &keepalive)
+    -> grpc::ChannelArguments {
+  grpc::ChannelArguments args;
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS,
+              static_cast<int>(keepalive.keepalive_time.count() * 1000));
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS,
+              static_cast<int>(keepalive.keepalive_timeout.count() * 1000));
+  args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS,
+              static_cast<int>(keepalive.keepalive_permit_without_calls));
+  return args;
+}
+
+auto perform_health_check(grpc::GenericStub &stub, const std::string &service)
+    -> Expected<bool> {
+  grpc::ClientContext context;
+  context.set_deadline(std::chrono::system_clock::now() +
+                       std::chrono::seconds(5));
+
+  grpc::ByteBuffer request;
+  grpc::ByteBuffer response;
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool done = false;
+  grpc::Status status;
+
+  auto method = std::format("/{}/HealthCheck", service);
+  stub.UnaryCall(&context, method, grpc::StubOptions{}, &request, &response,
+                 [&mutex, &cv, &done, &status](grpc::Status call_status) {
+                   std::lock_guard<std::mutex> lock(mutex);
+                   status = std::move(call_status);
+                   done = true;
+                   cv.notify_one();
+                 });
+
+  {
+    std::unique_lock<std::mutex> lock(mutex);
+    cv.wait(lock, [&done]() { return done; });
+  }
+
+  if (!status.ok()) {
+    return tl::unexpected(sr::engine::make_error(std::format(
+        "health check failed: {} ({})", status.error_message(),
+        static_cast<int>(status.error_code()))));
+  }
+
+  return true;
+}
+
+auto is_retryable(const RetryConfig &config, grpc::StatusCode code) -> bool {
+  return std::find(config.retryable_codes.begin(), config.retryable_codes.end(),
+                   code) != config.retryable_codes.end();
+}
+
+auto calculate_backoff(const RetryConfig &config, std::uint32_t attempt)
+    -> std::chrono::milliseconds {
+  double factor = std::min(std::pow(2.0, static_cast<double>(attempt)),
+                           config.max_delay_factor);
+  auto delay_ms = static_cast<std::int64_t>(config.base_delay.count() * factor);
+  return std::chrono::milliseconds(delay_ms);
+}
+
 auto perform_unary_call(grpc::GenericStub &stub, const std::string &method,
                         const rpc::RpcMetadata &metadata,
                         std::chrono::milliseconds timeout, bool wait_for_ready,
@@ -262,21 +418,64 @@ auto perform_unary_call(grpc::GenericStub &stub, const std::string &method,
   return response;
 }
 
+auto perform_unary_call_with_retry(
+    grpc::GenericStub &stub, const std::string &method,
+    const rpc::RpcMetadata &metadata, std::chrono::milliseconds timeout,
+    bool wait_for_ready, const std::string &authority,
+    const grpc::ByteBuffer &request, const RetryConfig &retry)
+    -> Expected<grpc::ByteBuffer> {
+  std::uint32_t attempt = 0;
+
+  while (attempt < retry.max_attempts) {
+    auto result = perform_unary_call(stub, method, metadata, timeout,
+                                     wait_for_ready, authority, request);
+
+    if (result) {
+      return result;
+    }
+
+    if (attempt + 1 < retry.max_attempts) {
+      grpc::StatusCode code = static_cast<grpc::StatusCode>(0);
+      auto status = result.error().message;
+      if (!status.empty()) {
+        auto code_start = status.rfind("(");
+        auto code_end = status.rfind(")");
+        if (code_start != std::string::npos && code_end != std::string::npos &&
+            code_end > code_start + 1) {
+          auto code_str = status.substr(code_start + 1, code_end - code_start - 1);
+          code = static_cast<grpc::StatusCode>(std::stoi(code_str));
+        }
+      }
+
+      if (is_retryable(retry, code)) {
+        auto backoff = calculate_backoff(retry, attempt);
+        std::this_thread::sleep_for(backoff);
+        ++attempt;
+        continue;
+      }
+    }
+
+    return tl::unexpected(result.error());
+  }
+
+  return tl::unexpected(
+      sr::engine::make_error("rpc call failed: max attempts exceeded"));
+}
+
 struct ServerOutputKernel {
   rpc::RpcStatus status;
 
-  /// Send a response using the responder stored on the server call.
   auto operator()(const rpc::RpcServerCall &call,
                   const grpc::ByteBuffer &payload) const noexcept
       -> Expected<void> {
-    if (!call.responder) {
+    if (!static_cast<bool>(call.responder)) {
       return tl::unexpected(
           sr::engine::make_error("rpc responder missing on server call"));
     }
     rpc::RpcResponse response;
     response.payload = clone_byte_buffer(payload);
     response.status = status;
-    return call.responder->send(std::move(response));
+    return call.responder.send(std::move(response));
   }
 };
 
@@ -287,16 +486,17 @@ struct UnaryCallKernel {
   std::chrono::milliseconds timeout{0};
   bool wait_for_ready = false;
   std::string authority;
+  RetryConfig retry;
 
-  /// Invoke a unary RPC using grpc::GenericStub.
   auto operator()(const grpc::ByteBuffer &request) const noexcept
       -> Expected<grpc::ByteBuffer> {
     if (!stub) {
       return tl::unexpected(
           sr::engine::make_error("rpc_unary_call missing stub"));
     }
-    return perform_unary_call(*stub, method, metadata, timeout, wait_for_ready,
-                              authority, request);
+    return perform_unary_call_with_retry(*stub, method, metadata, timeout,
+                                         wait_for_ready, authority, request,
+                                         retry);
   }
 };
 
@@ -307,25 +507,91 @@ struct BatchUnaryCallKernel {
   std::chrono::milliseconds timeout{0};
   bool wait_for_ready = false;
   std::string authority;
+  RetryConfig retry;
+  bool parallel = false;
 
-  /// Invoke a unary RPC for each payload in the batch.
   auto operator()(const std::vector<grpc::ByteBuffer> &requests) const noexcept
       -> Expected<std::vector<grpc::ByteBuffer>> {
     if (!stub) {
       return tl::unexpected(
           sr::engine::make_error("rpc_unary_call_batch missing stub"));
     }
-    std::vector<grpc::ByteBuffer> responses;
-    responses.reserve(requests.size());
-    for (const auto &request : requests) {
-      auto response = perform_unary_call(*stub, method, metadata, timeout,
-                                         wait_for_ready, authority, request);
-      if (!response) {
-        return tl::unexpected(response.error());
+
+    if (!parallel || requests.size() <= 1) {
+      std::vector<grpc::ByteBuffer> responses;
+      responses.reserve(requests.size());
+      for (const auto &request : requests) {
+        auto result = perform_unary_call_with_retry(
+            *stub, method, metadata, timeout, wait_for_ready, authority,
+            request, retry);
+        if (!result) {
+          return tl::unexpected(result.error());
+        }
+        responses.push_back(std::move(*result));
       }
-      responses.push_back(std::move(*response));
+      return responses;
     }
+
+    const auto n = requests.size();
+    std::vector<Expected<grpc::ByteBuffer>> results(n);
+    std::atomic<bool> has_error{false};
+
+    parallel_for(n, [this, &requests, &results, &has_error, n](std::size_t index) {
+      if (index >= n) {
+        return;
+      }
+      results[index] = perform_unary_call_with_retry(
+          *stub, method, metadata, timeout, wait_for_ready, authority,
+          requests[index], retry);
+      if (!results[index]) {
+        has_error.store(true, std::memory_order_release);
+      }
+    });
+
+    if (has_error.load(std::memory_order_acquire)) {
+      for (const auto &result : results) {
+        if (!result) {
+          return tl::unexpected(result.error());
+        }
+      }
+    }
+
+    std::vector<grpc::ByteBuffer> responses;
+    responses.reserve(n);
+    for (auto &result : results) {
+      responses.push_back(std::move(*result));
+    }
+
     return responses;
+  }
+};
+
+struct HealthCheckKernel {
+  std::shared_ptr<grpc::GenericStub> stub;
+  std::string service;
+
+  auto operator()() const noexcept -> Expected<bool> {
+    if (!stub) {
+      return tl::unexpected(
+          sr::engine::make_error("rpc_health_check missing stub"));
+    }
+    return perform_health_check(*stub, service);
+  }
+};
+
+struct MetricsKernel {
+  std::shared_ptr<RpcMetrics> metrics;
+
+  auto operator()() const noexcept -> Json {
+    Json result = Json::object();
+    result["total_requests"] = metrics->total_requests.load(std::memory_order_acquire);
+    result["successful_requests"] = metrics->successful_requests.load(std::memory_order_acquire);
+    result["failed_requests"] = metrics->failed_requests.load(std::memory_order_acquire);
+    result["retries_total"] = metrics->retries_total.load(std::memory_order_acquire);
+    result["retries_success"] = metrics->retries_success.load(std::memory_order_acquire);
+    result["average_latency_ms"] = metrics->average_latency_ms();
+    result["success_rate"] = metrics->success_rate();
+    return result;
   }
 };
 
@@ -337,6 +603,8 @@ auto register_rpc_types() -> void {
       "grpc_byte_buffer_vec");
   sr::engine::register_type<rpc::RpcMetadata>("rpc_metadata");
   sr::engine::register_type<rpc::RpcServerCall>("rpc_server_call");
+  sr::engine::register_type<Json>("json");
+  sr::engine::register_type<std::shared_ptr<RpcMetrics>>("rpc_metrics");
 }
 
 auto register_rpc_kernels(KernelRegistry &registry) -> void {
@@ -344,8 +612,8 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
 
   registry.register_kernel(
       "rpc_server_input", [](const rpc::RpcServerCall &call) noexcept {
-        return std::make_tuple(call.method, clone_byte_buffer(call.request),
-                               call.metadata);
+        return std::tuple(call.method, clone_byte_buffer(call.request),
+                          call.metadata);
       });
 
   registry.register_kernel_with_params(
@@ -469,8 +737,13 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         const auto authority = get_string_param(params, "authority", "");
         const auto metadata = get_metadata_param(params, "metadata");
 
-        auto channel =
-            grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto creds = grpc::InsecureChannelCredentials();
+        const auto use_tls = get_bool_param(params, "use_tls", false);
+        if (use_tls) {
+          creds = grpc::SslCredentials(grpc::SslCredentialsOptions());
+        }
+
+        auto channel = grpc::CreateChannel(target, std::move(creds));
         UnaryCallKernel kernel;
         kernel.stub = std::make_shared<grpc::GenericStub>(std::move(channel));
         kernel.method = method;
@@ -478,6 +751,11 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         kernel.timeout = std::chrono::milliseconds(timeout_ms);
         kernel.wait_for_ready = wait_for_ready;
         kernel.authority = authority;
+        kernel.retry.max_attempts =
+            static_cast<std::uint32_t>(get_int_param(params, "retry_attempts", 3));
+        kernel.retry.base_delay = std::chrono::milliseconds(
+            get_int_param(params, "retry_base_delay_ms", 100));
+
         return kernel;
       });
 
@@ -503,9 +781,16 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
             get_bool_param(params, "wait_for_ready", false);
         const auto authority = get_string_param(params, "authority", "");
         const auto metadata = get_metadata_param(params, "metadata");
+        const auto parallel =
+            get_bool_param(params, "parallel_batch", false);
 
-        auto channel =
-            grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto creds = grpc::InsecureChannelCredentials();
+        const auto use_tls = get_bool_param(params, "use_tls", false);
+        if (use_tls) {
+          creds = grpc::SslCredentials(grpc::SslCredentialsOptions());
+        }
+
+        auto channel = grpc::CreateChannel(target, std::move(creds));
         BatchUnaryCallKernel kernel;
         kernel.stub = std::make_shared<grpc::GenericStub>(std::move(channel));
         kernel.method = method;
@@ -513,7 +798,47 @@ auto register_rpc_kernels(KernelRegistry &registry) -> void {
         kernel.timeout = std::chrono::milliseconds(timeout_ms);
         kernel.wait_for_ready = wait_for_ready;
         kernel.authority = authority;
+        kernel.parallel = parallel;
+        kernel.retry.max_attempts =
+            static_cast<std::uint32_t>(get_int_param(params, "retry_attempts", 3));
+        kernel.retry.base_delay = std::chrono::milliseconds(
+            get_int_param(params, "retry_base_delay_ms", 100));
+
         return kernel;
+      });
+
+  registry.register_kernel_with_params(
+      "rpc_health_check",
+      [](const Json &params) -> Expected<HealthCheckKernel> {
+        if (!params.is_object()) {
+          return tl::unexpected(
+              sr::engine::make_error("rpc_health_check expects params object"));
+        }
+        const auto target = get_string_param(params, "target", "");
+        const auto service = get_string_param(params, "service", "");
+        if (target.empty()) {
+          return tl::unexpected(
+              sr::engine::make_error("rpc_health_check missing target"));
+        }
+
+        auto creds = grpc::InsecureChannelCredentials();
+        const auto use_tls = get_bool_param(params, "use_tls", false);
+        if (use_tls) {
+          creds = grpc::SslCredentials(grpc::SslCredentialsOptions());
+        }
+
+        auto channel = grpc::CreateChannel(target, std::move(creds));
+        HealthCheckKernel kernel;
+        kernel.stub = std::make_shared<grpc::GenericStub>(std::move(channel));
+        kernel.service = service;
+        return kernel;
+      });
+
+  registry.register_kernel_with_params(
+      "rpc_metrics",
+      [](const Json &params) -> Expected<MetricsKernel> {
+        auto metrics = std::make_shared<RpcMetrics>();
+        return MetricsKernel{.metrics = std::move(metrics)};
       });
 }
 

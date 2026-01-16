@@ -106,18 +106,26 @@ auto decode_shard_payload(const grpc::ByteBuffer &buffer)
   return decoded;
 }
 
-struct CaptureResponder final : sr::kernel::rpc::RpcResponder {
+struct CaptureResponder final {
   std::mutex mutex;
   std::optional<sr::kernel::rpc::RpcResponse> last;
 
-  /// Capture responses from rpc_server_output.
   auto send(sr::kernel::rpc::RpcResponse response) noexcept
-      -> sr::engine::Expected<void> override {
+      -> sr::engine::Expected<void> {
     std::lock_guard<std::mutex> lock(mutex);
     last = std::move(response);
     return {};
   }
 };
+
+auto make_capture_responder(std::shared_ptr<CaptureResponder> responder)
+    -> sr::kernel::rpc::RpcResponder {
+  return sr::kernel::rpc::RpcResponder{
+      .send = [responder](sr::kernel::rpc::RpcResponse resp) {
+          return responder->send(std::move(resp));
+      }
+  };
+}
 
 auto make_rpc_registry() -> sr::engine::KernelRegistry {
   sr::engine::KernelRegistry registry;
@@ -400,7 +408,7 @@ auto test_rpc_server_output() -> bool {
   sr::kernel::rpc::RpcServerCall call;
   call.method = "Echo";
   call.request = make_byte_buffer("request");
-  call.responder = responder;
+  call.responder = make_capture_responder(responder);
 
   sr::engine::RequestContext ctx;
   ctx.set_env<sr::kernel::rpc::RpcServerCall>("call", std::move(call));

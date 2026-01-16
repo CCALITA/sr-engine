@@ -23,6 +23,7 @@ endif()
 add_library(sr_engine
   src/compat/quick_exit_compat.cpp
   src/engine/dsl.cpp
+  src/engine/fusion.cpp
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
@@ -34,6 +35,7 @@ add_library(sr_engine
   src/runtime/serve/rpc_env.cpp
   src/kernel/sample_kernels.cpp
   src/kernel/rpc_kernels.cpp
+  src/kernel/rpc_transport_grpc.cpp
 )
 
 target_include_directories(sr_engine PUBLIC
@@ -42,7 +44,7 @@ target_include_directories(sr_engine PUBLIC
 )
 
 
-option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." OFF)
+option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." ON)
 
 find_package(gRPC CONFIG REQUIRED)
 target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)
@@ -118,6 +120,9 @@ add_executable(sr_engine_tests
   tests/test_trace.cpp
   tests/rpc_test.cpp
   tests/serve_test.cpp
+  tests/test_rpc_abstractions.cpp
+  tests/test_rpc_policies.cpp
+  tests/test_rpc_trampoline.cpp
 )
 
 target_link_libraries(sr_engine_tests PRIVATE sr_engine)

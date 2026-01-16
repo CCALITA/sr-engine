@@ -39,12 +39,12 @@
 
 namespace sr::engine::serve::detail {
 
-struct GraphSelection {
+struct GraphSelection final {
   std::string name;
   std::optional<int> version;
 };
 
-struct GraphKeyHash {
+struct GraphKeyHash final {
   auto operator()(const GraphKey &key) const noexcept -> std::size_t {
     const auto h1 = std::hash<std::string>{}(key.name);
     const auto h2 = std::hash<int>{}(key.version);
@@ -52,7 +52,7 @@ struct GraphKeyHash {
   }
 };
 
-struct GraphKeyEqual {
+struct GraphKeyEqual final {
   auto operator()(const GraphKey &lhs, const GraphKey &rhs) const noexcept
       -> bool {
     return lhs.version == rhs.version && lhs.name == rhs.name;
@@ -81,7 +81,7 @@ auto parse_graph_selection(std::optional<std::string_view> name_value,
     return tl::unexpected(make_error(std::string(missing_message)));
   }
   GraphSelection selection;
-  selection.name = std::string(*name_value);
+  selection.name.assign(*name_value);
   if (version_value) {
     if (version_value->empty()) {
       return tl::unexpected(make_error("graph version metadata empty"));
@@ -304,20 +304,18 @@ private:
 
   auto resolve_env_bindings(const PlanSnapshot &snapshot)
       -> Expected<EnvBindings> {
-    {
-      std::shared_lock<std::shared_mutex> lock(env_mutex);
-      auto it = env_cache.find(snapshot.key);
-      if (it != env_cache.end()) {
-        return it->second;
-      }
+    auto it = env_cache.find(snapshot.key);
+    if (it != env_cache.end()) {
+      return it->second;
     }
     auto bindings = Traits::analyze_env(snapshot.plan);
     if (!bindings) {
       return tl::unexpected(bindings.error());
     }
-    {
-      std::unique_lock<std::shared_mutex> lock(env_mutex);
-      env_cache.emplace(snapshot.key, *bindings);
+    std::unique_lock<std::shared_mutex> lock(env_mutex);
+    auto [inserted_it, inserted] = env_cache.emplace(snapshot.key, *bindings);
+    if (!inserted) {
+      return inserted_it->second;
     }
     return *bindings;
   }
@@ -366,8 +364,10 @@ private:
       ctx.trace.sampler = config.trace_sampler;
       ctx.trace.clock = config.trace_clock;
       ctx.trace.flags = config.trace_flags;
-      ctx.trace.trace_id = request_id.fetch_add(1, std::memory_order_relaxed);
-      ctx.trace.next_span.store(1, std::memory_order_relaxed);
+      if (config.trace_flags != 0) {
+        ctx.trace.trace_id = request_id.fetch_add(1, std::memory_order_relaxed);
+        ctx.trace.next_span.store(1, std::memory_order_relaxed);
+      }
 
       ctx.deadline = Traits::deadline(env, config.default_deadline);
       Traits::prime_cancellation(env, ctx);
@@ -484,7 +484,7 @@ private:
   bool use_inflight = false;
 };
 
-struct GrpcTraits {
+struct GrpcTraits final {
   using Envelope = GrpcEnvelope;
   using EnvBindings = RpcEnvBindings;
   using Transport = GrpcServer;
@@ -553,10 +553,10 @@ struct GrpcTraits {
   }
 
   static auto attach_request_state(Envelope &env,
-                                   const std::shared_ptr<RequestState> &state)
+                                    const std::shared_ptr<RequestState> &state)
       -> void {
-    if (env.responder) {
-      env.responder->attach_request_state(state);
+    if (env.responder.attach_request_state) {
+      env.responder.attach_request_state(state.get());
     }
   }
 
@@ -567,7 +567,8 @@ struct GrpcTraits {
   }
 
   static auto response_sent(const Envelope &env) -> bool {
-    return env.responder && env.responder->sent();
+    return static_cast<bool>(env.responder) && env.responder.sent &&
+           env.responder.sent();
   }
 
   static auto complete(Envelope &) -> void {}
@@ -576,7 +577,7 @@ struct GrpcTraits {
       -> void {
     if (env.responder) {
       ignore_send(
-          env.responder->send(make_error_response(code, std::move(message))));
+          env.responder.send(make_error_response(code, std::move(message))));
     }
   }
 };
@@ -598,7 +599,8 @@ struct RpcTraitsBase {
   }
 
   static auto response_sent(const Envelope &env) -> bool {
-    return env.responder && env.responder->sent();
+    return static_cast<bool>(env.responder) && env.responder.sent &&
+           env.responder.sent();
   }
 
   static auto complete(Envelope &) -> void {}
@@ -607,7 +609,7 @@ struct RpcTraitsBase {
       -> void {
     if (env.responder) {
       ignore_send(
-          env.responder->send(make_error_response(code, std::move(message))));
+          env.responder.send(make_error_response(code, std::move(message))));
     }
   }
 
@@ -618,7 +620,7 @@ struct RpcTraitsBase {
 
 } // namespace detail
 
-struct IpcTraits {
+struct IpcTraits final {
   using Envelope = IpcEnvelope;
   using EnvBindings = RpcEnvBindings;
   using Transport = IpcServer;
@@ -696,7 +698,8 @@ struct IpcTraits {
   }
 
   static auto response_sent(const Envelope &env) -> bool {
-    return env.responder && env.responder->sent();
+    return static_cast<bool>(env.responder) && env.responder.sent &&
+           env.responder.sent();
   }
 
   static auto complete(Envelope &) -> void {}
@@ -705,13 +708,13 @@ struct IpcTraits {
       -> void {
     if (env.responder) {
       ignore_send(
-          env.responder->send(make_error_response(code, std::move(message))));
+          env.responder.send(make_error_response(code, std::move(message))));
     }
   }
 };
 
 #ifdef SR_ENGINE_WITH_ARROW_FLIGHT
-struct FlightTraits {
+struct FlightTraits final {
   using Envelope = FlightEnvelope;
   using EnvBindings = FlightEnvBindings;
   using Transport = FlightServer;
@@ -794,7 +797,8 @@ struct FlightTraits {
   }
 
   static auto response_sent(const Envelope &env) -> bool {
-    return env.responder && env.responder->sent();
+    return static_cast<bool>(env.responder) && env.responder.sent &&
+           env.responder.sent();
   }
 
   static auto complete(Envelope &env) -> void {

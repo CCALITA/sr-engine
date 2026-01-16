@@ -57,7 +57,7 @@ struct Signature {
 /// Type-erased box holding a registered value instance.
 struct ValueBox {
   entt::meta_type type{};
-  // todo: SBO?
+
   std::shared_ptr<void> storage{};
 
   auto has_value() const -> bool { return static_cast<bool>(storage); }

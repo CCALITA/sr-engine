@@ -78,10 +78,11 @@ auto byte_buffer_to_string(const grpc::ByteBuffer &buffer) -> std::string {
     total += slice.size();
   }
   std::string data;
-  data.reserve(total);
+  data.resize(total);
+  std::size_t offset = 0;
   for (const auto &slice : slices) {
-    const auto *ptr = reinterpret_cast<const char *>(slice.begin());
-    data.append(ptr, slice.size());
+    std::memcpy(data.data() + offset, slice.begin(), slice.size());
+    offset += slice.size();
   }
   return data;
 }
@@ -360,7 +361,7 @@ auto IpcServer::handle_connection(int fd) -> void {
   env.method = std::move(*method_result);
   env.metadata = std::move(metadata);
   env.payload = string_to_byte_buffer(*payload_result);
-  env.responder = std::move(responder);
+  env.responder = to_rpc_responder(responder);
   env.peer = build_peer_string(fd);
 
   if (callback_) {

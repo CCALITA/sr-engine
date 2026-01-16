@@ -15,6 +15,7 @@
 
 #include <exec/async_scope.hpp>
 #include <exec/static_thread_pool.hpp>
+#include <exec/timed_thread_scheduler.hpp>
 #include <stdexec/execution.hpp>
 
 #include "engine/error.hpp"
@@ -44,6 +45,8 @@ auto path_matches_extension(const std::filesystem::path &path,
   return path.extension() == extension;
 }
 
+class GraphDaemon;
+
 } // namespace
 
 class Runtime::GraphDaemon {
@@ -53,70 +56,35 @@ public:
               bool recursive, bool allow_replace)
       : runtime_(runtime), root_(std::move(root)),
         poll_interval_(poll_interval), extension_(std::move(extension)),
-        recursive_(recursive), allow_replace_(allow_replace) {
-    start();
+        recursive_(recursive), allow_replace_(allow_replace),
+        scheduler_context_(std::make_unique<exec::timed_thread_context>()),
+        scheduler_(scheduler_context_->get_scheduler()), scope_() {
+    schedule_scan();
   }
 
-  ~GraphDaemon() { stop(); }
+  ~GraphDaemon() {
+    running_ = false;
+    stdexec::sync_wait(scope_.on_empty());
+  }
 
 private:
-  auto start() -> void {
-    if (running_) {
-      // WTH?
-      return;
-    }
-    running_ = true;
-    worker_ = std::thread([this] { run(); });
-  }
-
-  auto stop() -> void {
-    {
-      std::lock_guard lock(mutex_);
-      if (!running_) {
-        return;
-      }
-      stop_requested_ = true;
-    }
-    wakeup_.notify_all();
-    if (worker_.joinable()) {
-      worker_.join();
-    }
-    running_ = false;
-  }
-
-  auto run() -> void {
-    while (true) {
-      scan_once();
-      std::unique_lock lock(mutex_);
-      if (stop_requested_) {
-        break;
-      }
-      if (poll_interval_.count() <= 0) {
-        wakeup_.wait(lock, [this] { return stop_requested_; });
-      } else {
-        wakeup_.wait_for(lock, poll_interval_,
-                         [this] { return stop_requested_; });
-      }
-      if (stop_requested_) {
-        break;
-      }
-    }
+  auto log_error(std::string message) -> void {
+    std::cerr << "[GraphDaemon] " << message << std::endl;
   }
 
   auto scan_once() -> void {
     if (root_.empty()) {
-      set_error("graph daemon root path is empty");
+      log_error("root path is empty");
       return;
     }
 
     std::error_code fs_error;
     if (!std::filesystem::exists(root_, fs_error)) {
-      set_error(std::format("graph daemon root missing: {}", root_.string()));
+      log_error(std::format("root missing: {}", root_.string()));
       return;
     }
     if (!std::filesystem::is_directory(root_, fs_error)) {
-      set_error(std::format("graph daemon root is not a directory: {}",
-                            root_.string()));
+      log_error(std::format("root is not a directory: {}", root_.string()));
       return;
     }
 
@@ -135,7 +103,7 @@ private:
       seen.insert(path_string);
       auto last_write = std::filesystem::last_write_time(path, entry_error);
       if (entry_error) {
-        set_error(std::format("stat failed for {}: {}", path_string,
+        log_error(std::format("stat failed for {}: {}", path_string,
                               entry_error.message()));
         return;
       }
@@ -153,7 +121,7 @@ private:
       GraphFileState state{last_write, !staged};
       files_[path_string] = state;
       if (!staged) {
-        set_error(std::format("stage failed for {}: {}", path_string,
+        log_error(std::format("stage failed for {}: {}", path_string,
                               staged.error().message));
       }
     };
@@ -166,7 +134,7 @@ private:
         handle_entry(*it);
       }
       if (iter_error) {
-        set_error(std::format("scan failed for {}: {}", root_.string(),
+        log_error(std::format("scan failed for {}: {}", root_.string(),
                               iter_error.message()));
       }
     } else {
@@ -176,7 +144,7 @@ private:
         handle_entry(*it);
       }
       if (iter_error) {
-        set_error(std::format("scan failed for {}: {}", root_.string(),
+        log_error(std::format("scan failed for {}: {}", root_.string(),
                               iter_error.message()));
       }
     }
@@ -190,9 +158,18 @@ private:
     }
   }
 
-  auto set_error(std::string message) -> void {
-    std::lock_guard lock(mutex_);
-    last_error_ = std::move(message);
+  auto schedule_scan() -> void {
+    if (!running_.load(std::memory_order_relaxed)) {
+      return;
+    }
+    auto sender = exec::schedule_after(scheduler_, poll_interval_) |
+                  stdexec::then([this] {
+                    if (running_.load(std::memory_order_relaxed)) {
+                      scan_once();
+                      schedule_scan();
+                    }
+                  });
+    scope_.spawn(std::move(sender));
   }
 
   Runtime &runtime_;
@@ -201,13 +178,11 @@ private:
   std::string extension_;
   bool recursive_ = false;
   bool allow_replace_ = true;
-  std::atomic<bool> running_{false};
-  bool stop_requested_ = false;
-  std::thread worker_;
-  std::condition_variable wakeup_;
-  std::mutex mutex_;
+  std::unique_ptr<exec::timed_thread_context> scheduler_context_;
+  exec::timed_thread_scheduler scheduler_;
+  std::atomic<bool> running_{true};
+  exec::async_scope scope_;
   std::unordered_map<std::string, GraphFileState> files_;
-  std::optional<std::string> last_error_;
 };
 
 Runtime::Runtime(RuntimeConfig config)

@@ -1,15 +1,5 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-- `src/engine/`: JSON DSL parsing, graph validation, plan compilation, and kernel registry/adapters.
-- `src/runtime/`: execution runtime (`Executor`) and request-context handling.
-- `src/kernel/`: built-in/sample kernels plus type registration.
-- `src/reflection/`: reflect helper wrap on (ENTT, JSON, expected).
-- `examples/`: runnable demos (e.g., `examples/simple.cpp`).
-- `thirdparty/`: external dependencies (stdexec).
-- `scripts/`: helper scripts (currently minimal).
-- `build/`: generated build output (do not commit).
-
 ## Architecture Overview
 - The engine loads a JSON DSL, parses it into a `GraphDef`, resolves bindings/types, and compiles to an `ExecPlan`. The runtime executes the plan in topological order. Kernels are registered via `KernelRegistry`; signatures are inferred from callable argument/return types and port names come from the DSL. `Runtime` wraps `KernelRegistry`, `GraphStore`, and `Executor` to support hot-swapped DSL flows (see `docs/runtime.md`). `RequestContext` carries a `TraceContext` that can emit per-run and per-node events.
 

@@ -123,7 +123,7 @@ private:
     env.method = method_;
     env.payload = request_;
     env.metadata = metadata_;
-    env.responder = std::move(responder);
+    env.responder = to_rpc_responder(responder);
     if (server_->callback_) {
       server_->callback_(std::move(env));
     }

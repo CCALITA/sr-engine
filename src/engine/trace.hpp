@@ -30,6 +30,8 @@ enum class TraceFlag : std::uint32_t {
   QueueDelay = 1u << 2,
   ErrorDetail = 1u << 3,
   ValueSizes = 1u << 4,
+  InlineDetail = 1u << 5,    ///< Track inline execution decisions
+  FusionDetail = 1u << 6,    ///< Track fused node stage execution
 };
 
 using TraceFlags = std::uint32_t;
@@ -106,6 +108,35 @@ struct QueueDelay {
   Tick start_ts = 0;
 };
 
+/// Inline execution event for a node.
+struct NodeInlined {
+  TraceId trace_id = 0;
+  SpanId span_id = 0;
+  std::string_view node_id;
+  int node_index = -1;
+  int parent_node_index = -1;  ///< Node that triggered inline execution
+  int inline_depth = 0;        ///< Current inline recursion depth
+};
+
+/// Fused node execution start event.
+struct FusedNodeStart {
+  TraceId trace_id = 0;
+  SpanId span_id = 0;
+  SpanId parent_span_id = 0;
+  std::string_view fused_id;
+  int stage_count = 0;
+  Tick ts = 0;
+};
+
+/// Fused node stage completion (for debugging).
+struct FusedStageEnd {
+  TraceId trace_id = 0;
+  SpanId parent_span_id = 0;
+  std::string_view original_id;
+  int stage_index = 0;
+  Tick duration = 0;
+};
+
 /// Clock provider for tracing.
 struct TraceClock {
   Tick (*now)() = nullptr;
@@ -126,10 +157,14 @@ struct TraceSinkRef {
   void (*node_end)(void*, const NodeEnd&) = nullptr;
   void (*node_error)(void*, const NodeError&) = nullptr;
   void (*queue_delay)(void*, const QueueDelay&) = nullptr;
+  void (*node_inlined)(void*, const NodeInlined&) = nullptr;
+  void (*fused_node_start)(void*, const FusedNodeStart&) = nullptr;
+  void (*fused_stage_end)(void*, const FusedStageEnd&) = nullptr;
 
   /// Returns true when any callback is installed.
   auto enabled() const -> bool {
-    return run_start || run_end || node_start || node_end || node_error || queue_delay;
+    return run_start || run_end || node_start || node_end || node_error || 
+           queue_delay || node_inlined || fused_node_start || fused_stage_end;
   }
 };
 
@@ -219,6 +254,48 @@ auto bind_queue_delay(void (**slot)(void*, const QueueDelay&)) -> void {
   }
 }
 
+template <typename Sink>
+constexpr bool has_node_inlined = requires(Sink& sink, const NodeInlined& event) { sink.on_node_inlined(event); };
+
+template <typename Sink>
+constexpr bool has_fused_node_start = requires(Sink& sink, const FusedNodeStart& event) { sink.on_fused_node_start(event); };
+
+template <typename Sink>
+constexpr bool has_fused_stage_end = requires(Sink& sink, const FusedStageEnd& event) { sink.on_fused_stage_end(event); };
+
+template <typename Sink>
+auto bind_node_inlined(void (**slot)(void*, const NodeInlined&)) -> void {
+  if constexpr (has_node_inlined<Sink>) {
+    *slot = [](void* self, const NodeInlined& event) {
+      static_cast<Sink*>(self)->on_node_inlined(event);
+    };
+  } else {
+    *slot = nullptr;
+  }
+}
+
+template <typename Sink>
+auto bind_fused_node_start(void (**slot)(void*, const FusedNodeStart&)) -> void {
+  if constexpr (has_fused_node_start<Sink>) {
+    *slot = [](void* self, const FusedNodeStart& event) {
+      static_cast<Sink*>(self)->on_fused_node_start(event);
+    };
+  } else {
+    *slot = nullptr;
+  }
+}
+
+template <typename Sink>
+auto bind_fused_stage_end(void (**slot)(void*, const FusedStageEnd&)) -> void {
+  if constexpr (has_fused_stage_end<Sink>) {
+    *slot = [](void* self, const FusedStageEnd& event) {
+      static_cast<Sink*>(self)->on_fused_stage_end(event);
+    };
+  } else {
+    *slot = nullptr;
+  }
+}
+
 }  // namespace detail
 
 /// Create a TraceSinkRef from a sink object with on_* methods.
@@ -232,6 +309,9 @@ auto make_sink(Sink& sink) -> TraceSinkRef {
   detail::bind_node_end<Sink>(&ref.node_end);
   detail::bind_node_error<Sink>(&ref.node_error);
   detail::bind_queue_delay<Sink>(&ref.queue_delay);
+  detail::bind_node_inlined<Sink>(&ref.node_inlined);
+  detail::bind_fused_node_start<Sink>(&ref.fused_node_start);
+  detail::bind_fused_stage_end<Sink>(&ref.fused_stage_end);
   return ref;
 }
 
@@ -309,6 +389,27 @@ inline auto emit(TraceSinkRef sink, const NodeError& event) -> void {
 inline auto emit(TraceSinkRef sink, const QueueDelay& event) -> void {
   if (sink.queue_delay) {
     sink.queue_delay(sink.self, event);
+  }
+}
+
+/// Emit a NodeInlined event when a callback is installed.
+inline auto emit(TraceSinkRef sink, const NodeInlined& event) -> void {
+  if (sink.node_inlined) {
+    sink.node_inlined(sink.self, event);
+  }
+}
+
+/// Emit a FusedNodeStart event when a callback is installed.
+inline auto emit(TraceSinkRef sink, const FusedNodeStart& event) -> void {
+  if (sink.fused_node_start) {
+    sink.fused_node_start(sink.self, event);
+  }
+}
+
+/// Emit a FusedStageEnd event when a callback is installed.
+inline auto emit(TraceSinkRef sink, const FusedStageEnd& event) -> void {
+  if (sink.fused_stage_end) {
+    sink.fused_stage_end(sink.self, event);
   }
 }
 

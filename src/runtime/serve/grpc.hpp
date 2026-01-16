@@ -23,16 +23,15 @@ struct GrpcEnvelope {
   std::string method;
   grpc::ByteBuffer payload;
   kernel::rpc::RpcMetadata metadata;
-  std::shared_ptr<class GrpcResponder> responder;
+  kernel::rpc::RpcResponder responder;
 };
 
 /// Response sink for gRPC requests.
-class GrpcResponder final : public kernel::rpc::RpcResponder {
+class GrpcResponder final {
 public:
   explicit GrpcResponder(std::shared_ptr<class GrpcCall> call);
 
-  auto send(kernel::rpc::RpcResponse response) noexcept
-      -> Expected<void> override;
+  auto send(kernel::rpc::RpcResponse response) noexcept -> Expected<void>;
 
   auto attach_request_state(const std::shared_ptr<RequestState> &state)
       -> void;
@@ -43,6 +42,23 @@ private:
   std::shared_ptr<class GrpcCall> call_;
   std::atomic<bool> sent_{false};
 };
+
+inline auto to_rpc_responder(const std::shared_ptr<GrpcResponder>& responder)
+    -> kernel::rpc::RpcResponder {
+  return kernel::rpc::RpcResponder{
+      .send = [responder](kernel::rpc::RpcResponse resp) -> sr::engine::Expected<void> {
+          return responder->send(std::move(resp));
+      },
+      .attach_request_state = [responder](void* state) {
+          responder->attach_request_state(
+              std::static_pointer_cast<RequestState>(
+                  std::shared_ptr<void>(state, [](void*){})));
+      },
+      .sent = [responder]() -> bool {
+          return responder->sent();
+      }
+  };
+}
 
 /// Async gRPC unary server transport.
 class GrpcServer {

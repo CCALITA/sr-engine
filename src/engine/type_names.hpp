@@ -2,12 +2,20 @@
 
 #include "engine/type_system.hpp"
 
+#include <stdexcept>
+
 namespace sr::engine {
 
 /// Bind a human-readable name to a C++ type.
 template <typename T>
 struct TypeName {
-  static auto set(const char *value) -> void { name() = value; }
+  static auto set(const char *value) -> void {
+    auto &storage = name();
+    if (!storage.empty() && storage != value) {
+      throw std::runtime_error("type name already registered");
+    }
+    storage = value;
+  }
   static auto get() -> const std::string & { return name(); }
 
 private:

@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
+if (APPLE AND NOT DEFINED CMAKE_CXX_COMPILER)
+  if (DEFINED ENV{CXX} AND "$ENV{CXX}" MATCHES "g\\+\\+|gcc")
+    message(STATUS "Detected GCC in CXX; forcing clang on macOS")
+    set(CMAKE_C_COMPILER "/usr/bin/clang" CACHE FILEPATH "C compiler" FORCE)
+    set(CMAKE_CXX_COMPILER "/usr/bin/clang++" CACHE FILEPATH "C++ compiler" FORCE)
+  endif()
+endif()
+
 project(sr_engine LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)

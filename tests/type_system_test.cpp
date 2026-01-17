@@ -3,6 +3,8 @@
 #include "engine/type_system.hpp"
 #include "test_support.hpp"
 
+#include <array>
+
 auto test_stable_type_id_for_primitive() -> bool {
   auto registry = sr::engine::TypeRegistry::create();
   const auto id1 = registry->intern_primitive("i64");
@@ -29,6 +31,12 @@ auto test_primitive_encoding_stable() -> bool {
   const auto bytes2 = sr::engine::encode_primitive("i64");
   if (bytes1.bytes != bytes2.bytes) {
     std::cerr << "expected stable encoding for primitive\n";
+    return false;
+  }
+  const std::array<std::uint8_t, 9> expected{
+      0x01, 0x01, 0x03, 0x00, 0x00, 0x00, 0x69, 0x36, 0x34};
+  if (bytes1.bytes != std::vector<std::uint8_t>(expected.begin(), expected.end())) {
+    std::cerr << "unexpected primitive encoding bytes\n";
     return false;
   }
   return true;

@@ -1,6 +1,8 @@
 #include "engine/type_encoding.hpp"
 
 #include <array>
+#include <limits>
+#include <stdexcept>
 
 namespace sr::engine {
 namespace {
@@ -12,7 +14,7 @@ auto write_u8(std::vector<std::uint8_t>& out, std::uint8_t value) -> void {
   out.push_back(value);
 }
 
-auto write_u32(std::vector<std::uint8_t>& out, std::uint32_t value) -> void {
+auto write_u32_le(std::vector<std::uint8_t>& out, std::uint32_t value) -> void {
   std::array<std::uint8_t, 4> bytes{
       static_cast<std::uint8_t>(value & 0xFFu),
       static_cast<std::uint8_t>((value >> 8) & 0xFFu),
@@ -22,8 +24,11 @@ auto write_u32(std::vector<std::uint8_t>& out, std::uint32_t value) -> void {
 }
 
 auto write_string(std::vector<std::uint8_t>& out, std::string_view value) -> void {
+  if (value.size() > std::numeric_limits<std::uint32_t>::max()) {
+    throw std::length_error("type encoding string too large");
+  }
   const auto size = static_cast<std::uint32_t>(value.size());
-  write_u32(out, size);
+  write_u32_le(out, size);
   out.insert(out.end(), value.begin(), value.end());
 }
 

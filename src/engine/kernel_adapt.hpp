@@ -407,7 +407,7 @@ auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
   }
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type = meta;
+  port.type_id = meta.id();
   port.required = !traits::optional;
   inputs.push_back(std::move(port));
   return {};
@@ -424,7 +424,7 @@ auto append_output(std::vector<PortDesc> &outputs, std::string_view name)
   }
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type = meta;
+  port.type_id = meta.id();
   port.required = true;
   outputs.push_back(std::move(port));
   return {};

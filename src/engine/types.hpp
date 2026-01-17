@@ -45,7 +45,7 @@ enum class Cardinality {
 /// Describes a single input/output port type.
 struct PortDesc {
   NameId name_id{};
-  entt::meta_type type;
+  TypeId type_id{};
   bool required = true;
   Cardinality cardinality = Cardinality::Single;
 };
@@ -58,7 +58,7 @@ struct Signature {
 
 /// Type-erased box holding a registered value instance.
 struct ValueBox {
-  entt::meta_type type{};
+  TypeId type_id{};
 
   std::shared_ptr<void> storage{};
 
@@ -67,21 +67,21 @@ struct ValueBox {
   template <typename T> auto set(T value) -> void {
     auto meta = entt::resolve<T>();
     assert(meta && "Type must be registered before storing");
-    type = meta;
+    type_id = meta.id();
     storage = std::make_shared<T>(std::move(value));
   }
 
   template <typename T> auto get() -> T & {
     auto meta = entt::resolve<T>();
     assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueBox type mismatch");
+    assert(type_id == meta.id() && "ValueBox type mismatch");
     return *static_cast<T *>(storage.get());
   }
 
   template <typename T> auto get() const -> const T & {
     auto meta = entt::resolve<T>();
     assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueBox type mismatch");
+    assert(type_id == meta.id() && "ValueBox type mismatch");
     return *static_cast<const T *>(storage.get());
   }
 };
@@ -173,7 +173,6 @@ struct RequestContext {
 template <typename T>
   requires std::semiregular<T>
 inline auto register_type(const char *name) -> void {
-
   entt::meta<T>().type(entt::hashed_string{name});
 }
 

@@ -45,13 +45,13 @@ struct CompiledNode {
 
 /// Slot type description for execution storage.
 struct SlotSpec {
-  entt::meta_type type{};
+  TypeId type_id{};
 };
 
 /// Required env entry for plan execution.
 struct EnvRequirement {
   std::string key;
-  entt::meta_type type{};
+  TypeId type_id{};
 };
 
 /// Named graph output slot.

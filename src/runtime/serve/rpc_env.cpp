@@ -53,13 +53,13 @@ auto remaining_deadline_ms(const RequestContext &ctx) -> std::int64_t {
   return remaining.count();
 }
 
-auto validate_type(const EnvRequirement &req, entt::meta_type expected,
+auto validate_type(const EnvRequirement &req, TypeId expected,
                    std::string_view key) -> Expected<void> {
-  if (!expected) {
+  if (expected == TypeId{}) {
     return tl::unexpected(make_error(
         std::format("missing type registration for env key: {}", key)));
   }
-  if (req.type && req.type != expected) {
+  if (req.type_id != TypeId{} && req.type_id != expected) {
     return tl::unexpected(make_error(
         std::format("env type mismatch for key: {}", key)));
   }
@@ -73,7 +73,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
   for (const auto &req : plan.env_requirements) {
     if (req.key == kRpcCallKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<kernel::rpc::RpcServerCall>(),
+              validate_type(req, entt::resolve<kernel::rpc::RpcServerCall>().id(),
                             req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -83,7 +83,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcMethodKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::string>(), req.key);
+              validate_type(req, entt::resolve<std::string>().id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -91,7 +91,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
       continue;
     }
     if (req.key == kRpcPayloadKey) {
-      if (auto ok = validate_type(req, entt::resolve<grpc::ByteBuffer>(),
+      if (auto ok = validate_type(req, entt::resolve<grpc::ByteBuffer>().id(),
                                   req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -101,7 +101,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcMetadataKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<kernel::rpc::RpcMetadata>(),
+              validate_type(req, entt::resolve<kernel::rpc::RpcMetadata>().id(),
                             req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -111,7 +111,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcPeerKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::string>(), req.key);
+              validate_type(req, entt::resolve<std::string>().id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -120,7 +120,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcDeadlineKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::int64_t>(), req.key);
+              validate_type(req, entt::resolve<std::int64_t>().id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }

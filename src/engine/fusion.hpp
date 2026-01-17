@@ -26,13 +26,13 @@ struct CapturedConst {
 struct CapturedEnv {
   std::size_t input_index;   ///< Which input position receives this env
   std::string key;           ///< Env key to look up at runtime
-  entt::meta_type type;      ///< Expected type
+  TypeId type_id{};          ///< Expected type
 };
 
 /// A single stage within a fused kernel.
 struct FusedStage {
   KernelHandle handle;                    ///< Original kernel
-  entt::meta_type output_type;            ///< Output type for intermediate
+  TypeId output_type_id{};                ///< Output type for intermediate
   std::string original_id;                ///< Original node ID (for tracing)
   std::vector<CapturedConst> consts;      ///< Captured const inputs
   std::vector<CapturedEnv> env_bindings;  ///< Env bindings to look up at runtime

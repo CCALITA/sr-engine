@@ -26,6 +26,7 @@ auto test_type_mismatch() -> bool;
 auto test_cycle_detection() -> bool;
 auto test_duplicate_output_name() -> bool;
 auto test_env_type_mismatch() -> bool;
+auto test_plan_slot_uses_typeid() -> bool;
 auto test_dynamic_port_names() -> bool;
 auto test_dynamic_ports_missing_names() -> bool;
 auto test_dataflow_fanout_join() -> bool;
@@ -84,6 +85,7 @@ int main() {
   run_test("cycle_detection", test_cycle_detection, stats);
   run_test("duplicate_output_name", test_duplicate_output_name, stats);
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
+  run_test("plan_slot_uses_typeid", test_plan_slot_uses_typeid, stats);
   run_test("dynamic_port_names", test_dynamic_port_names, stats);
   run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names,
            stats);

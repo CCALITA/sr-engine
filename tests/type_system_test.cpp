@@ -1,3 +1,4 @@
+#include "engine/type_encoding.hpp"
 #include "engine/type_hash.hpp"
 #include "engine/type_system.hpp"
 #include "test_support.hpp"
@@ -23,6 +24,16 @@ auto test_type_hash_stable() -> bool {
   return true;
 }
 
+auto test_primitive_encoding_stable() -> bool {
+  const auto bytes1 = sr::engine::encode_primitive("i64");
+  const auto bytes2 = sr::engine::encode_primitive("i64");
+  if (bytes1.bytes != bytes2.bytes) {
+    std::cerr << "expected stable encoding for primitive\n";
+    return false;
+  }
+  return true;
+}
+
 int main() {
   auto passed = true;
   if (test_stable_type_id_for_primitive()) {
@@ -35,6 +46,12 @@ int main() {
     std::cout << "[PASS] type_hash_stable\n";
   } else {
     std::cout << "[FAIL] type_hash_stable\n";
+    passed = false;
+  }
+  if (test_primitive_encoding_stable()) {
+    std::cout << "[PASS] primitive_encoding_stable\n";
+  } else {
+    std::cout << "[FAIL] primitive_encoding_stable\n";
     passed = false;
   }
   return passed ? 0 : 1;

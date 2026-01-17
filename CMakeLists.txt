@@ -35,6 +35,7 @@ add_library(sr_engine
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
+  src/engine/type_encoding.cpp
   src/engine/type_hash.cpp
   src/engine/type_system.cpp
   src/runtime/executor.cpp

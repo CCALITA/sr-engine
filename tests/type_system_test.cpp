@@ -1,5 +1,6 @@
 #include "engine/type_encoding.hpp"
 #include "engine/type_hash.hpp"
+#include "engine/type_names.hpp"
 #include "engine/type_system.hpp"
 #include "test_support.hpp"
 
@@ -66,6 +67,18 @@ auto test_typeid_from_encoding() -> bool {
   return true;
 }
 
+struct ExampleType {};
+
+auto test_register_type_mapping() -> bool {
+  sr::engine::TypeRegistry registry;
+  const auto id = sr::engine::register_type<ExampleType>(registry, "example_type");
+  if (id != registry.intern_primitive("example_type")) {
+    std::cerr << "expected register_type to intern TypeName\n";
+    return false;
+  }
+  return true;
+}
+
 auto test_primitive_encoding_stable() -> bool {
   const auto bytes1 = sr::engine::encode_primitive("i64");
   const auto bytes2 = sr::engine::encode_primitive("i64");
@@ -94,6 +107,12 @@ int main() {
     std::cout << "[PASS] type_hash_stable\n";
   } else {
     std::cout << "[FAIL] type_hash_stable\n";
+    passed = false;
+  }
+  if (test_register_type_mapping()) {
+    std::cout << "[PASS] register_type_mapping\n";
+  } else {
+    std::cout << "[FAIL] register_type_mapping\n";
     passed = false;
   }
   if (test_primitive_encoding_stable()) {

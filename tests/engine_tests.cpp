@@ -64,7 +64,8 @@ auto test_serve_multi_endpoint() -> bool;
 auto test_serve_concurrent_stress() -> bool;
 
 int main() {
-  sr::kernel::register_builtin_types();
+  static sr::engine::TypeRegistry type_registry;
+  sr::kernel::register_builtin_types(type_registry);
 
   TestStats stats;
   run_test("basic_pipeline", test_basic_pipeline, stats);

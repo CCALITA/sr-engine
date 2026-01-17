@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "engine/error.hpp"
+#include "engine/type_names.hpp"
 
 namespace sr::kernel {
 namespace {
@@ -385,34 +386,35 @@ auto flight_invoice_exchange(const flight::FlightServerCall &call) noexcept
 
 } // namespace
 
-auto register_flight_types() -> void {
-  sr::engine::register_type<flight::FlightCallKind>("flight_call_kind");
-  sr::engine::register_type<arrow::flight::Action>("flight_action_value");
+auto register_flight_types(sr::engine::TypeRegistry &registry) -> void {
+  sr::engine::register_type<flight::FlightCallKind>(registry, "flight_call_kind");
+  sr::engine::register_type<arrow::flight::Action>(registry, "flight_action_value");
   sr::engine::register_type<std::optional<arrow::flight::Action>>(
-      "flight_action");
-  sr::engine::register_type<arrow::flight::Ticket>("flight_ticket_value");
+      registry, "flight_action");
+  sr::engine::register_type<arrow::flight::Ticket>(registry, "flight_ticket_value");
   sr::engine::register_type<std::optional<arrow::flight::Ticket>>(
-      "flight_ticket");
+      registry, "flight_ticket");
   sr::engine::register_type<arrow::flight::FlightDescriptor>(
-      "flight_descriptor_value");
+      registry, "flight_descriptor_value");
   sr::engine::register_type<std::optional<arrow::flight::FlightDescriptor>>(
-      "flight_descriptor");
+      registry, "flight_descriptor");
   sr::engine::register_type<
-      std::shared_ptr<arrow::flight::FlightMessageReader>>("flight_reader");
+      std::shared_ptr<arrow::flight::FlightMessageReader>>(registry, "flight_reader");
   sr::engine::register_type<
-      std::shared_ptr<arrow::flight::FlightMessageWriter>>("flight_writer");
+      std::shared_ptr<arrow::flight::FlightMessageWriter>>(registry, "flight_writer");
   sr::engine::register_type<
       std::shared_ptr<arrow::flight::FlightMetadataWriter>>(
-      "flight_metadata_writer");
+      registry, "flight_metadata_writer");
   sr::engine::register_type<std::shared_ptr<arrow::RecordBatchReader>>(
-      "record_batch_reader");
+      registry, "record_batch_reader");
   sr::engine::register_type<std::vector<arrow::flight::Result>>(
-      "flight_results");
-  sr::engine::register_type<flight::FlightServerCall>("flight_server_call");
+      registry, "flight_results");
+  sr::engine::register_type<flight::FlightServerCall>(registry, "flight_server_call");
 }
 
 auto register_flight_kernels(KernelRegistry &registry) -> void {
-  register_flight_types();
+  static sr::engine::TypeRegistry type_registry;
+  register_flight_types(type_registry);
 
   registry.register_kernel(
       "flight_server_input", [](const flight::FlightServerCall &call) noexcept {

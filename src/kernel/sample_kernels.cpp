@@ -1,5 +1,7 @@
 #include "kernel/sample_kernels.hpp"
 
+#include "engine/type_names.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -49,11 +51,11 @@ auto get_string_param(const sr::engine::Json &params, const char *key,
 
 } // namespace
 
-auto register_builtin_types() -> void {
-  sr::engine::register_type<int64_t>("int64");
-  sr::engine::register_type<double>("double");
-  sr::engine::register_type<bool>("bool");
-  sr::engine::register_type<std::string>("string");
+auto register_builtin_types(sr::engine::TypeRegistry &registry) -> void {
+  sr::engine::register_type<int64_t>(registry, "int64");
+  sr::engine::register_type<double>(registry, "double");
+  sr::engine::register_type<bool>(registry, "bool");
+  sr::engine::register_type<std::string>(registry, "string");
 }
 
 auto register_sample_kernels(KernelRegistry &registry) -> void {

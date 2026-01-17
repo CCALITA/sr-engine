@@ -58,7 +58,7 @@ constexpr std::string_view kInvoiceDescriptorCommand = "invoice.calculate";
 namespace sr::kernel {
 
 /// Register Arrow Flight value types used by flight kernels.
-auto register_flight_types() -> void;
+auto register_flight_types(sr::engine::TypeRegistry &registry) -> void;
 
 /// Register Flight input/output kernels into a registry.
 auto register_flight_kernels(sr::engine::KernelRegistry &registry) -> void;

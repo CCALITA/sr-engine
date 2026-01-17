@@ -76,7 +76,7 @@ struct RpcServerCall {
 namespace sr::kernel {
 
 /// Register gRPC value types used by rpc kernels.
-auto register_rpc_types() -> void;
+auto register_rpc_types(sr::engine::TypeRegistry &registry) -> void;
 
 /// Register rpc input/output/codec kernels into a registry.
 auto register_rpc_kernels(sr::engine::KernelRegistry &registry) -> void;

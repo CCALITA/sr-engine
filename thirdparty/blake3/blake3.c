@@ -6,7 +6,13 @@
 
 #include "blake3.h"
 
+#if defined(_MSC_VER)
+#define INLINE static __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
 #define INLINE static inline __attribute__((always_inline))
+#else
+#define INLINE static inline
+#endif
 
 enum blake3_flags {
   CHUNK_START = 1 << 0,

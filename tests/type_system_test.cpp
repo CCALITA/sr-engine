@@ -17,8 +17,12 @@ auto test_stable_type_id_for_primitive() -> bool {
 }
 
 auto test_type_hash_stable() -> bool {
-  const auto digest1 = sr::engine::hash_type_bytes("prim:i64");
-  const auto digest2 = sr::engine::hash_type_bytes("prim:i64");
+  const auto encoding = sr::engine::encode_primitive("i64");
+  const auto payload = std::string_view(
+      reinterpret_cast<const char *>(encoding.bytes.data()),
+      encoding.bytes.size());
+  const auto digest1 = sr::engine::hash_type_bytes(payload);
+  const auto digest2 = sr::engine::hash_type_bytes(payload);
   if (digest1.bytes != digest2.bytes) {
     std::cerr << "expected stable hash for type bytes\n";
     return false;
@@ -34,10 +38,15 @@ auto test_typeid_from_encoding() -> bool {
       encoding.bytes.size());
   const auto digest = sr::engine::hash_type_bytes(payload);
 
-  std::uint64_t expected_id = 0;
-  for (std::size_t i = 0; i < sizeof(std::uint64_t); ++i) {
-    expected_id |= static_cast<std::uint64_t>(digest.bytes[i]) << (i * 8);
-  }
+  const std::uint64_t expected_id =
+      static_cast<std::uint64_t>(digest.bytes[0]) |
+      (static_cast<std::uint64_t>(digest.bytes[1]) << 8) |
+      (static_cast<std::uint64_t>(digest.bytes[2]) << 16) |
+      (static_cast<std::uint64_t>(digest.bytes[3]) << 24) |
+      (static_cast<std::uint64_t>(digest.bytes[4]) << 32) |
+      (static_cast<std::uint64_t>(digest.bytes[5]) << 40) |
+      (static_cast<std::uint64_t>(digest.bytes[6]) << 48) |
+      (static_cast<std::uint64_t>(digest.bytes[7]) << 56);
 
   const auto id = registry->intern_primitive("i64");
   if (id == 0 || id != expected_id) {

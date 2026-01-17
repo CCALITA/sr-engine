@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string_view>
 
 namespace sr::engine {
@@ -16,6 +17,7 @@ auto to_payload(const TypeEncoding &encoding) -> std::string_view {
       encoding.bytes.size());
 }
 
+// TypeId uses the little-endian interpretation of the first 8 digest bytes.
 auto digest_to_type_id(const TypeDigest &digest) -> TypeId {
   TypeId id = 0;
   for (std::size_t i = 0; i < sizeof(TypeId); ++i) {
@@ -53,6 +55,10 @@ auto TypeRegistry::intern_primitive(std::string_view name) -> TypeId {
 
   auto existing = id_to_index_.find(id);
   if (existing != id_to_index_.end()) {
+    const auto &stored = entries_[existing->second].info;
+    if (stored.fingerprint.bytes != info.fingerprint.bytes) {
+      throw std::runtime_error("type id collision detected");
+    }
     return id;
   }
 

@@ -35,6 +35,7 @@ add_library(sr_engine
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
+  src/engine/type_system.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
   src/runtime/serve/serve.cpp
@@ -140,3 +141,11 @@ if (TARGET absl::log)
 endif()
 
 add_test(NAME sr_engine_tests COMMAND sr_engine_tests)
+
+add_executable(type_system_test
+  tests/type_system_test.cpp
+)
+
+target_link_libraries(type_system_test PRIVATE sr_engine)
+
+add_test(NAME type_system_test COMMAND type_system_test)

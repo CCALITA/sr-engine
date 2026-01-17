@@ -17,6 +17,7 @@
 
 #include "engine/error.hpp"
 #include "engine/trace.hpp"
+#include "engine/type_system.hpp"
 #include "reflection/entt.hpp"
 #include "reflection/json.hpp"
 

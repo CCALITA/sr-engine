@@ -17,12 +17,12 @@
 
 #include "__execution_fwd.hpp"
 
+#include "__completion_signatures_of.hpp"
 #include "__concepts.hpp"
-#include "__senders_core.hpp"
 #include "__tuple.hpp"
 #include "__type_traits.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   // NOT TO SPEC:
   namespace __clsur {
     template <__class _Dp>
@@ -33,8 +33,8 @@ namespace stdexec {
 
   template <class _Tp>
   concept __sender_adaptor_closure =
-    derived_from<__decay_t<_Tp>, sender_adaptor_closure<__decay_t<_Tp>>>
-    && move_constructible<__decay_t<_Tp>> && constructible_from<__decay_t<_Tp>, _Tp>;
+    __std::derived_from<__decay_t<_Tp>, sender_adaptor_closure<__decay_t<_Tp>>>
+    && __std::move_constructible<__decay_t<_Tp>> && __std::constructible_from<__decay_t<_Tp>, _Tp>;
 
   template <class _Tp, class _Sender>
   concept __sender_adaptor_closure_for = __sender_adaptor_closure<_Tp> && sender<__decay_t<_Sender>>
@@ -93,7 +93,7 @@ namespace stdexec {
         requires __callable<_Fn, _Sender, _As...>
       STDEXEC_ATTRIBUTE(host, device, always_inline)
       auto operator()(_Sender&& __sndr) && noexcept(__nothrow_callable<_Fn, _Sender, _As...>) {
-        return stdexec::__apply(
+        return STDEXEC::__apply(
           static_cast<_Fn&&>(__fn_),
           static_cast<__tuple<_As...>&&>(__args_),
           static_cast<_Sender&&>(__sndr));
@@ -104,7 +104,7 @@ namespace stdexec {
       STDEXEC_ATTRIBUTE(host, device, always_inline)
       auto operator()(_Sender&& __sndr) const & noexcept(
         __nothrow_callable<const _Fn&, _Sender, const _As&...>) {
-        return stdexec::__apply(__fn_, __args_, static_cast<_Sender&&>(__sndr));
+        return STDEXEC::__apply(__fn_, __args_, static_cast<_Sender&&>(__sndr));
       }
 
      private:
@@ -117,4 +117,4 @@ namespace stdexec {
   } // namespace __clsur
 
   using __clsur::__closure;
-} // namespace stdexec
+} // namespace STDEXEC

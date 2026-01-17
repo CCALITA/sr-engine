@@ -17,15 +17,14 @@
 
 #include "__detail/__config.hpp"
 #include "__detail/__meta.hpp"
+#include "__detail/__utility.hpp"
 
 #include "concepts.hpp" // IWYU pragma: keep
 
-#include <functional>
-#include <tuple>
-#include <type_traits>
 #include <cstddef>
+#include <functional>
 
-namespace stdexec {
+namespace STDEXEC {
   template <class _Fun0, class _Fun1>
   struct __composed {
     STDEXEC_ATTRIBUTE(no_unique_address) _Fun0 __t0_;
@@ -186,12 +185,12 @@ namespace stdexec {
 
   template <class _Fun, class... _As>
   concept __invocable = requires(_Fun&& __f, _As&&... __as) {
-    __invoke(static_cast<_Fun &&>(__f), static_cast<_As &&>(__as)...);
+    __invoke(static_cast<_Fun&&>(__f), static_cast<_As&&>(__as)...);
   };
 
   template <class _Fun, class... _As>
   concept __nothrow_invocable = __invocable<_Fun, _As...> && requires(_Fun&& __f, _As&&... __as) {
-    { __invoke(static_cast<_Fun &&>(__f), static_cast<_As &&>(__as)...) } noexcept;
+    { __invoke(static_cast<_Fun&&>(__f), static_cast<_As&&>(__as)...) } noexcept;
   };
 
   template <class _Fun, class... _As>
@@ -243,4 +242,4 @@ namespace stdexec {
 
   template <class _Fn>
   STDEXEC_HOST_DEVICE_DEDUCTION_GUIDE __for_each(_Fn) -> __for_each<_Fn>;
-} // namespace stdexec
+} // namespace STDEXEC

@@ -26,7 +26,7 @@
 
 namespace exec {
   namespace __transform_each {
-    using namespace stdexec;
+    using namespace STDEXEC;
 
     template <class _Receiver, class _Adaptor>
     struct __operation_base {
@@ -36,10 +36,10 @@ namespace exec {
 
     template <class _ReceiverId, class _Adaptor>
     struct __receiver {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       struct __t {
-        using receiver_concept = stdexec::receiver_t;
+        using receiver_concept = STDEXEC::receiver_t;
         using __id = __receiver;
         __operation_base<_Receiver, _Adaptor>* __op_;
 
@@ -53,47 +53,46 @@ namespace exec {
         }
 
         void set_value() noexcept {
-          stdexec::set_value(static_cast<_Receiver&&>(__op_->__receiver_));
+          STDEXEC::set_value(static_cast<_Receiver&&>(__op_->__receiver_));
         }
 
         template <class _Error>
         void set_error(_Error&& __error) noexcept {
-          stdexec::set_error(
+          STDEXEC::set_error(
             static_cast<_Receiver&&>(__op_->__receiver_), static_cast<_Error&&>(__error));
         }
 
         void set_stopped() noexcept
           requires __callable<set_stopped_t, _Receiver>
         {
-          stdexec::set_stopped(static_cast<_Receiver&&>(__op_->__receiver_));
+          STDEXEC::set_stopped(static_cast<_Receiver&&>(__op_->__receiver_));
         }
 
         auto get_env() const noexcept -> env_of_t<_Receiver> {
-          return stdexec::get_env(__op_->__receiver_);
+          return STDEXEC::get_env(__op_->__receiver_);
         }
       };
     };
 
     template <class _Sender, class _ReceiverId, class _Adaptor>
     struct __operation {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       struct __t : __operation_base<_Receiver, _Adaptor> {
         using __id = __operation;
-        subscribe_result_t<_Sender, stdexec::__t<__receiver<_ReceiverId, _Adaptor>>> __op_;
+        subscribe_result_t<_Sender, STDEXEC::__t<__receiver<_ReceiverId, _Adaptor>>> __op_;
 
         __t(_Sender&& __sndr, _Receiver __rcvr, _Adaptor __adaptor)
-          : __operation_base<
-              _Receiver,
-              _Adaptor
-            >{static_cast<_Receiver&&>(__rcvr), static_cast<_Adaptor&&>(__adaptor)}
+          : __operation_base<_Receiver, _Adaptor>{
+              static_cast<_Receiver&&>(__rcvr),
+              static_cast<_Adaptor&&>(__adaptor)}
           , __op_{exec::subscribe(
               static_cast<_Sender&&>(__sndr),
-              stdexec::__t<__receiver<_ReceiverId, _Adaptor>>{this})} {
+              STDEXEC::__t<__receiver<_ReceiverId, _Adaptor>>{this})} {
         }
 
         void start() & noexcept {
-          stdexec::start(__op_);
+          STDEXEC::start(__op_);
         }
       };
     };
@@ -124,29 +123,29 @@ namespace exec {
     struct __try_adaptor_calls_t {
 
       template <class _Item>
-      auto __try_adaptor_for_item(_Item*) -> stdexec::__mexception<
+      auto __try_adaptor_for_item(_Item*) -> STDEXEC::__mexception<
         _NOT_CALLABLE_ADAPTOR_<_Adaptor&>,
-        _WITH_ITEM_SENDER_<stdexec::__demangle_t<_Item>>
+        _WITH_ITEM_SENDER_<STDEXEC::__demangle_t<_Item>>
       >;
 
       template <class _Item>
-        requires stdexec::__callable<_Adaptor&, _Item>
-      auto __try_adaptor_for_item(_Item*) -> stdexec::__msuccess;
+        requires STDEXEC::__callable<_Adaptor&, _Item>
+      auto __try_adaptor_for_item(_Item*) -> STDEXEC::__msuccess;
 
       template <class... _Items>
       auto operator()(item_types<_Items...>*) -> decltype((
-        stdexec::__msuccess(),
+        STDEXEC::__msuccess(),
         ...,
         __try_adaptor_for_item(static_cast<_Items*>(nullptr))));
     };
 
     template <class _Adaptor, class _Items>
     using __try_adaptor_calls_result_t =
-      __call_result_t<__try_adaptor_calls_t<stdexec::__decay_t<_Adaptor>>, _Items>;
+      __call_result_t<__try_adaptor_calls_t<STDEXEC::__decay_t<_Adaptor>>, _Items>;
 
     template <class _Adaptor, class _Items>
     concept __callable_adaptor_for = requires(_Items* __items) {
-      { __try_adaptor_calls_t<stdexec::__decay_t<_Adaptor>>{}(__items) } -> stdexec::__ok;
+      { __try_adaptor_calls_t<STDEXEC::__decay_t<_Adaptor>>{}(__items) } -> STDEXEC::__ok;
     };
 
     struct transform_each_t {
@@ -169,16 +168,20 @@ namespace exec {
       using __completion_sigs_t = __sequence_completion_signatures_of_t<__child_of<_Self>, _Env...>;
 
       template <sender_expr_for<transform_each_t> _Self, class... _Env>
-      static auto get_completion_signatures(_Self&&, _Env&&...) noexcept
-        -> __completion_sigs_t<_Self, _Env...> {
-        return {};
+      static consteval auto get_completion_signatures() noexcept {
+        using __result_t = __completion_sigs_t<_Self, _Env...>;
+        if constexpr (__ok<__result_t>) {
+          return __result_t();
+        } else {
+          return STDEXEC::__invalid_completion_signature(__result_t());
+        }
       }
 
       template <class _Self, class... _Env>
-      using __item_types_t = stdexec::__mapply<
-        stdexec::__mtransform<
-          stdexec::__mbind_front_q<__call_result_t, __data_of<_Self>&>,
-          stdexec::__munique<stdexec::__q<item_types>>
+      using __item_types_t = STDEXEC::__mapply<
+        STDEXEC::__mtransform<
+          STDEXEC::__mbind_front_q<__call_result_t, __data_of<_Self>&>,
+          STDEXEC::__munique<STDEXEC::__q<item_types>>
         >,
         __item_types_of_t<__child_of<_Self>, _Env...>
       >;
@@ -193,15 +196,17 @@ namespace exec {
                  __data_of<_Self>,
                  __item_types_of_t<__child_of<_Self>, _Env...>
              >)
-      static auto get_item_types(_Self&&, _Env&&...) noexcept -> __mexception<
-        _TRANSFORM_EACH_ADAPTOR_INVOCATION_FAILED_<_Self>,
-        _WITH_SEQUENCE_<__child_of<_Self>>,
-        _WITH_ENVIRONMENT_<_Env...>,
-        _WITH_TYPE_<__try_adaptor_calls_result_t<
-          __data_of<_Self>,
-          __item_types_of_t<__child_of<_Self>, _Env...>
-        >>
-      >;
+      static consteval auto get_item_types() {
+        return exec::__invalid_item_types<
+          _TRANSFORM_EACH_ADAPTOR_INVOCATION_FAILED_<_Self>,
+          _WITH_SEQUENCE_<__child_of<_Self>>,
+          _WITH_ENVIRONMENT_<_Env...>,
+          _WITH_TYPE_<__try_adaptor_calls_result_t<
+            __data_of<_Self>,
+            __item_types_of_t<__child_of<_Self>, _Env...>
+          >>
+        >();
+      }
 
       template <class _Transform>
       struct _TRANSFORM_EACH_ITEM_TYPES_OF_THE_CHILD_ARE_INVALID_ { };
@@ -209,11 +214,13 @@ namespace exec {
       template <sender_expr_for<transform_each_t> _Self, class... _Env>
         requires(!__mvalid<__item_types_t, _Self, _Env...>)
              && (!__mvalid<__item_types_of_t, __child_of<_Self>, _Env...>)
-      static auto get_item_types(_Self&&, _Env&&...) noexcept -> __mexception<
-        _TRANSFORM_EACH_ITEM_TYPES_OF_THE_CHILD_ARE_INVALID_<_Self>,
-        _WITH_SEQUENCE_<__child_of<_Self>>,
-        _WITH_ENVIRONMENT_<_Env...>
-      >;
+      static consteval auto get_item_types() {
+        return exec::__invalid_item_types<
+          _TRANSFORM_EACH_ITEM_TYPES_OF_THE_CHILD_ARE_INVALID_<_Self>,
+          _WITH_SEQUENCE_<__child_of<_Self>>,
+          _WITH_ENVIRONMENT_<_Env...>
+        >();
+      }
 
       template <class _Transform>
       struct _TRANSFORM_EACH_ITEM_TYPES_CALCULATION_FAILED_ { };
@@ -225,11 +232,13 @@ namespace exec {
                   __data_of<_Self>,
                   __item_types_of_t<__child_of<_Self>, _Env...>
              >
-      static auto get_item_types(_Self&&, _Env&&...) noexcept -> __mexception<
-        _TRANSFORM_EACH_ITEM_TYPES_CALCULATION_FAILED_<_Self>,
-        _WITH_SEQUENCE_<__child_of<_Self>>,
-        _WITH_ENVIRONMENT_<_Env...>
-      >;
+      static consteval auto get_item_types() {
+        return exec::__invalid_item_types<
+          _TRANSFORM_EACH_ITEM_TYPES_CALCULATION_FAILED_<_Self>,
+          _WITH_SEQUENCE_<__child_of<_Self>>,
+          _WITH_ENVIRONMENT_<_Env...>
+        >();
+      }
 
       template <sender_expr_for<transform_each_t> _Self, class... _Env>
         requires __mvalid<__item_types_t, _Self, _Env...>
@@ -238,7 +247,7 @@ namespace exec {
                    __data_of<_Self>,
                    __item_types_of_t<__child_of<_Self>, _Env...>
               >
-      static auto get_item_types(_Self&&, _Env&&...) noexcept -> __item_types_t<_Self, _Env...> {
+      static consteval auto get_item_types() noexcept -> __item_types_t<_Self, _Env...> {
         return {};
       }
 
@@ -250,16 +259,16 @@ namespace exec {
 
       template <sender_expr_for<transform_each_t> _Self, receiver _Receiver>
       static auto subscribe(_Self&& __self, _Receiver __rcvr)
-        noexcept(__nothrow_callable<__sexpr_apply_t, _Self, __subscribe_fn<_Receiver>>)
-          -> __call_result_t<__sexpr_apply_t, _Self, __subscribe_fn<_Receiver>> {
-        return __sexpr_apply(static_cast<_Self&&>(__self), __subscribe_fn<_Receiver>{__rcvr});
+        noexcept(__nothrow_applicable<__subscribe_fn<_Receiver>, _Self>)
+          -> __apply_result_t<__subscribe_fn<_Receiver>, _Self> {
+        return __apply(__subscribe_fn<_Receiver>{__rcvr}, static_cast<_Self&&>(__self));
       }
 
       template <sender_expr_for<transform_each_t> _Sexpr>
       static auto get_env(const _Sexpr& __sexpr) noexcept -> env_of_t<__child_of<_Sexpr>> {
-        return __sexpr_apply(__sexpr, []<class _Child>(__ignore, __ignore, const _Child& __child) {
-          return stdexec::get_env(__child);
-        });
+        return __apply([]<class _Child>(__ignore, __ignore, const _Child& __child) {
+          return STDEXEC::get_env(__child);
+        }, __sexpr);
       }
     };
   } // namespace __transform_each

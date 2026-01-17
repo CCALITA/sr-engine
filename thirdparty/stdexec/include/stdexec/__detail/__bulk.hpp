@@ -15,22 +15,22 @@
  */
 #pragma once
 
-#include "__execution_legacy.hpp"
 #include "__execution_fwd.hpp"
+#include "__execution_legacy.hpp"
 
 // include these after __execution_fwd.hpp
 #include "__basic_sender.hpp"
+#include "__completion_signatures_of.hpp"
 #include "__diagnostics.hpp"
 #include "__meta.hpp"
-#include "__senders_core.hpp"
 #include "__sender_adaptor_closure.hpp"
-#include "__transform_completion_signatures.hpp"
 #include "__senders.hpp" // IWYU pragma: keep for __well_formed_sender
+#include "__transform_completion_signatures.hpp"
 
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wmissing-braces")
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.bulk]
   namespace __bulk {
@@ -113,7 +113,7 @@ namespace stdexec {
     template <>
     struct __bulk_traits<bulk_t> {
       using __on_not_callable =
-        __callable_error<"In stdexec::bulk(Sender, Policy, Shape, Function)..."_mstr>;
+        __callable_error<"In STDEXEC::bulk(Sender, Policy, Shape, Function)..."_mstr>;
 
       // Curried function, after passing the required indices.
       template <class _Fun, class _Shape>
@@ -124,7 +124,7 @@ namespace stdexec {
     template <>
     struct __bulk_traits<bulk_chunked_t> {
       using __on_not_callable =
-        __callable_error<"In stdexec::bulk_chunked(Sender, Policy, Shape, Function)..."_mstr>;
+        __callable_error<"In STDEXEC::bulk_chunked(Sender, Policy, Shape, Function)..."_mstr>;
 
       // Curried function, after passing the required indices.
       template <class _Fun, class _Shape>
@@ -139,7 +139,7 @@ namespace stdexec {
     template <>
     struct __bulk_traits<bulk_unchunked_t> {
       using __on_not_callable =
-        __callable_error<"In stdexec::bulk_unchunked(Sender, Policy, Shape, Function)..."_mstr>;
+        __callable_error<"In STDEXEC::bulk_unchunked(Sender, Policy, Shape, Function)..."_mstr>;
 
       // Curried function, after passing the required indices.
       template <class _Fun, class _Shape>
@@ -173,7 +173,12 @@ namespace stdexec {
 
     template <class _AlgoTag>
     struct __generic_bulk_t { // NOLINT(bugprone-crtp-constructor-accessibility)
-      template <sender _Sender, typename _Policy, integral _Shape, copy_constructible _Fun>
+      template <
+        sender _Sender,
+        typename _Policy,
+        __std::integral _Shape,
+        __std::copy_constructible _Fun
+      >
         requires is_execution_policy_v<std::remove_cvref_t<_Policy>>
       STDEXEC_ATTRIBUTE(host, device)
       auto operator()(_Sender&& __sndr, _Policy&& __pol, _Shape __shape, _Fun __fun) const
@@ -182,7 +187,7 @@ namespace stdexec {
           __data{__pol, __shape, static_cast<_Fun&&>(__fun)}, static_cast<_Sender&&>(__sndr));
       }
 
-      template <typename _Policy, integral _Shape, copy_constructible _Fun>
+      template <typename _Policy, __std::integral _Shape, __std::copy_constructible _Fun>
         requires is_execution_policy_v<std::remove_cvref_t<_Policy>>
       STDEXEC_ATTRIBUTE(always_inline)
       auto operator()(_Policy&& __pol, _Shape __shape, _Fun __fun) const {
@@ -193,9 +198,9 @@ namespace stdexec {
           static_cast<_Fun&&>(__fun));
       }
 
-      template <sender _Sender, integral _Shape, copy_constructible _Fun>
+      template <sender _Sender, __std::integral _Shape, __std::copy_constructible _Fun>
       [[deprecated(
-        "The bulk algorithm now requires an execution policy such as stdexec::par as an "
+        "The bulk algorithm now requires an execution policy such as STDEXEC::par as an "
         "argument.")]]
       STDEXEC_ATTRIBUTE(host, device) auto
         operator()(_Sender&& __sndr, _Shape __shape, _Fun __fun) const {
@@ -206,9 +211,9 @@ namespace stdexec {
           static_cast<_Fun&&>(__fun));
       }
 
-      template <integral _Shape, copy_constructible _Fun>
+      template <__std::integral _Shape, __std::copy_constructible _Fun>
       [[deprecated(
-        "The bulk algorithm now requires an execution policy such as stdexec::par as an "
+        "The bulk algorithm now requires an execution policy such as STDEXEC::par as an "
         "argument.")]]
       STDEXEC_ATTRIBUTE(always_inline) auto operator()(_Shape __shape, _Fun __fun) const {
         return (*this)(par, static_cast<_Shape&&>(__shape), static_cast<_Fun&&>(__fun));
@@ -246,7 +251,7 @@ namespace stdexec {
 
       template <class _Sender>
       static auto transform_sender(set_value_t, _Sender&& __sndr, __ignore) {
-        return __sexpr_apply(static_cast<_Sender&&>(__sndr), __transform_sender_fn());
+        return __apply(__transform_sender_fn(), static_cast<_Sender&&>(__sndr));
       }
     };
 
@@ -265,7 +270,7 @@ namespace stdexec {
       // Forward the child sender's environment (which contains completion scheduler)
       static constexpr auto get_attrs =
         []<class _Data, class _Child>(const _Data&, const _Child& __child) noexcept {
-          return __fwd_env(stdexec::get_env(__child));
+          return __fwd_env(STDEXEC::get_env(__child));
         };
 
       static constexpr auto get_completion_signatures =
@@ -293,7 +298,7 @@ namespace stdexec {
           _Receiver& __rcvr,
           _Tag,
           _Args&&... __args) noexcept -> void {
-        if constexpr (same_as<_Tag, set_value_t>) {
+        if constexpr (__std::same_as<_Tag, set_value_t>) {
           // Intercept set_value and dispatch to the bulk operation.
           using __shape_t = decltype(__state.__shape_);
           if constexpr (noexcept(__state.__fun_(__shape_t{}, __shape_t{}, __args...))) {
@@ -306,7 +311,7 @@ namespace stdexec {
               _Tag()(static_cast<_Receiver&&>(__rcvr), static_cast<_Args&&>(__args)...);
             }
             STDEXEC_CATCH_ALL {
-              stdexec::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
+              STDEXEC::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
             }
           }
         } else {
@@ -326,7 +331,7 @@ namespace stdexec {
           _Receiver& __rcvr,
           _Tag,
           _Args&&... __args) noexcept -> void {
-        if constexpr (std::same_as<_Tag, set_value_t>) {
+        if constexpr (__std::same_as<_Tag, set_value_t>) {
           using __shape_t = decltype(__state.__shape_);
           if constexpr (noexcept(__state.__fun_(__shape_t{}, __args...))) {
             // The noexcept version that doesn't need try/catch:
@@ -342,7 +347,7 @@ namespace stdexec {
               _Tag()(static_cast<_Receiver&&>(__rcvr), static_cast<_Args&&>(__args)...);
             }
             STDEXEC_CATCH_ALL {
-              stdexec::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
+              STDEXEC::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
             }
           }
         } else {
@@ -371,6 +376,6 @@ namespace stdexec {
 
   template <>
   struct __sexpr_impl<bulk_unchunked_t> : __bulk::__bulk_unchunked_impl { };
-} // namespace stdexec
+} // namespace STDEXEC
 
 STDEXEC_PRAGMA_POP()

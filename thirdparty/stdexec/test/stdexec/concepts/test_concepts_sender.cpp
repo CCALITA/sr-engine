@@ -19,7 +19,7 @@
 #include <test_common/receivers.hpp>
 #include <test_common/type_helpers.hpp>
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wunused-function")
@@ -34,14 +34,14 @@ namespace {
   }
 
   struct P2300r7_sender_1 {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
   };
 
   struct P2300r7_sender_2 { };
 } // namespace
 
 template <>
-inline constexpr bool stdexec::enable_sender<P2300r7_sender_2> = true;
+inline constexpr bool STDEXEC::enable_sender<P2300r7_sender_2> = true;
 
 namespace {
 
@@ -50,30 +50,30 @@ namespace {
     STATIC_REQUIRE(ex::sender<P2300r7_sender_2>);
   }
 
-#if !STDEXEC_STD_NO_COROUTINES()
-  struct awaiter {
+#if !STDEXEC_NO_STD_COROUTINES()
+  struct an_awaiter {
     auto await_ready() -> bool;
-    void await_suspend(__coro::coroutine_handle<>);
+    void await_suspend(STDEXEC::__std::coroutine_handle<>);
     void await_resume();
   };
 
-  struct awaitable {
-    friend auto operator co_await(awaitable) -> awaiter {
+  struct an_awaitable {
+    friend auto operator co_await(an_awaitable) -> an_awaiter {
       return {};
     }
   };
 
-  struct as_awaitable {
+  struct has_as_awaitable {
     template <class Promise>
-    friend auto tag_invoke(ex::as_awaitable_t, as_awaitable, Promise&) -> awaitable {
+    auto as_awaitable(Promise&) const -> an_awaitable {
       return {};
     }
   };
 
   TEST_CASE("Sender concept accepts awaiters and awaitables", "[concepts][sender]") {
-    STATIC_REQUIRE(ex::sender<awaiter>);
-    STATIC_REQUIRE(ex::sender<awaitable>);
-    STATIC_REQUIRE(ex::sender<as_awaitable>);
+    STATIC_REQUIRE(ex::sender<an_awaiter>);
+    STATIC_REQUIRE(ex::sender<an_awaitable>);
+    STATIC_REQUIRE(ex::sender<has_as_awaitable>);
   }
 #endif
 
@@ -86,20 +86,20 @@ namespace {
   };
 
   struct my_sender0 {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<
       ex::set_value_t(),
       ex::set_error_t(std::exception_ptr),
       ex::set_stopped_t()
     >;
 
-    friend auto tag_invoke(ex::connect_t, my_sender0, empty_recv::recv0&&) -> oper {
+    auto connect(empty_recv::recv0&&) const -> oper {
       return {};
     }
   };
 
   struct void_sender {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<ex::set_value_t()>;
 
     template <class Receiver>
@@ -109,7 +109,7 @@ namespace {
   };
 
   struct invalid_receiver {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
 
     template <class... As>
     void set_value(As&&...) noexcept {
@@ -142,14 +142,14 @@ namespace {
   }
 
   struct my_sender_int {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<
       ex::set_value_t(int),
       ex::set_error_t(std::exception_ptr),
       ex::set_stopped_t()
     >;
 
-    friend auto tag_invoke(ex::connect_t, my_sender_int, empty_recv::recv_int&&) -> oper {
+    auto connect(empty_recv::recv_int&&) const -> oper {
       return {};
     }
   };
@@ -197,14 +197,14 @@ namespace {
   }
 
   struct multival_sender {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<
       ex::set_value_t(int, double),
       ex::set_value_t(short, long),
       ex::set_error_t(std::exception_ptr)
     >;
 
-    friend auto tag_invoke(ex::connect_t, multival_sender, empty_recv::recv_int&&) -> oper {
+    auto connect(empty_recv::recv_int&&) const -> oper {
       return {};
     }
   };
@@ -219,14 +219,14 @@ namespace {
   }
 
   struct ec_sender {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<
       ex::set_value_t(),
       ex::set_error_t(std::exception_ptr),
       ex::set_error_t(int)
     >;
 
-    friend auto tag_invoke(ex::connect_t, ec_sender, empty_recv::recv_int&&) -> oper {
+    auto connect(empty_recv::recv_int&&) const -> oper {
       return {};
     }
   };
@@ -241,14 +241,14 @@ namespace {
   }
 
   struct my_r5_sender0 {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<
       ex::set_value_t(),
       ex::set_error_t(std::exception_ptr),
       ex::set_stopped_t()
     >;
 
-    friend auto tag_invoke(ex::connect_t, my_r5_sender0, empty_recv::recv0&&) -> oper {
+    auto connect(empty_recv::recv0&&) const -> oper {
       return {};
     }
   };
@@ -294,7 +294,7 @@ namespace {
 
   template <class Expected, class T>
   void has_type(T&&) {
-    STATIC_REQUIRE(ex::same_as<T, Expected>);
+    STATIC_REQUIRE(std::same_as<T, Expected>);
   }
 
   TEST_CASE(

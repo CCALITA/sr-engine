@@ -19,25 +19,24 @@
 
 // include these after __execution_fwd.hpp
 #include "__basic_sender.hpp"
+#include "__completion_signatures_of.hpp"
 #include "__continues_on.hpp"
 #include "__diagnostics.hpp"
 #include "__env.hpp"
 #include "__inline_scheduler.hpp"
 #include "__meta.hpp"
 #include "__schedulers.hpp"
-#include "__senders_core.hpp"
 #include "__sender_adaptor_closure.hpp"
 #include "__sender_introspection.hpp"
-#include "__type_traits.hpp"
 #include "__utility.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.on]
   namespace __on {
-    inline constexpr __mstring __on_context = "In stdexec::on(Scheduler, Sender)..."_mstr;
+    inline constexpr __mstring __on_context = "In STDEXEC::on(Scheduler, Sender)..."_mstr;
     inline constexpr __mstring __no_scheduler_diag =
-      "stdexec::on() requires a scheduler to transition back to."_mstr;
+      "STDEXEC::on() requires a scheduler to transition back to."_mstr;
     inline constexpr __mstring __no_scheduler_details =
       "The provided environment lacks a value for the get_scheduler() query."_mstr;
 
@@ -152,7 +151,7 @@ namespace stdexec {
       template <class _Sender, class _Env>
       STDEXEC_ATTRIBUTE(always_inline)
       static auto transform_sender(set_value_t, _Sender&& __sndr, const _Env& __env) {
-        return __sexpr_apply(static_cast<_Sender&&>(__sndr), __transform_sender_fn<_Sender>(__env));
+        return __apply(__transform_sender_fn<_Sender>(__env), static_cast<_Sender&&>(__sndr));
       }
     };
   } // namespace __on
@@ -161,9 +160,9 @@ namespace stdexec {
   inline constexpr on_t on{};
 
   namespace v2 {
-    using on_t [[deprecated("use stdexec::on_t instead")]] = stdexec::on_t;
-    [[deprecated("use stdexec::on instead")]]
-    inline constexpr stdexec::on_t const & on = stdexec::on;
+    using on_t [[deprecated("use STDEXEC::on_t instead")]] = STDEXEC::on_t;
+    [[deprecated("use STDEXEC::on instead")]]
+    inline constexpr STDEXEC::on_t const & on = STDEXEC::on;
   } // namespace v2
 
   template <>
@@ -174,4 +173,4 @@ namespace stdexec {
       return {};
     };
   };
-} // namespace stdexec
+} // namespace STDEXEC

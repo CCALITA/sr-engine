@@ -15,18 +15,18 @@
  */
 
 #include <exec/any_sender_of.hpp>
-#include <exec/inline_scheduler.hpp>
-#include <exec/when_any.hpp>
 #include <exec/env.hpp>
+#include <exec/inline_scheduler.hpp>
 #include <exec/static_thread_pool.hpp>
+#include <exec/when_any.hpp>
 #include <stdexec/stop_token.hpp>
 
-#include <test_common/schedulers.hpp>
 #include <test_common/receivers.hpp>
+#include <test_common/schedulers.hpp>
 
 #include <catch2/catch.hpp>
 
-using namespace stdexec;
+using namespace STDEXEC;
 using namespace exec;
 
 namespace {
@@ -34,7 +34,7 @@ namespace {
   ///////////////////////////////////////////////////////////////////////////////
   //                                                             any_receiver_ref
 
-  struct get_address_t : stdexec::__query<get_address_t> { };
+  struct get_address_t : STDEXEC::__query<get_address_t> { };
 
   inline constexpr get_address_t get_address;
 
@@ -54,7 +54,7 @@ namespace {
   };
 
   struct sink_receiver {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
 
     std::variant<std::monostate, int, std::exception_ptr, set_stopped_t> value_{};
 
@@ -128,21 +128,21 @@ namespace {
     // Check set value
     CHECK(value.value_.index() == 0);
     receiver_ref ref = value;
-    stdexec::set_value(static_cast<receiver_ref&&>(ref), 42);
+    STDEXEC::set_value(static_cast<receiver_ref&&>(ref), 42);
     CHECK(value.value_.index() == 1);
     CHECK(std::get<1>(value.value_) == 42);
     // Check set error
     CHECK(error.value_.index() == 0);
     ref = error;
-    stdexec::set_error(static_cast<receiver_ref&&>(ref), std::make_exception_ptr(42));
+    STDEXEC::set_error(static_cast<receiver_ref&&>(ref), std::make_exception_ptr(42));
     CHECK(error.value_.index() == 2);
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
     CHECK_THROWS_AS(std::rethrow_exception(std::get<2>(error.value_)), int);
 #endif
     // Check set stopped
     CHECK(stopped.value_.index() == 0);
     ref = stopped;
-    stdexec::set_stopped(static_cast<receiver_ref&&>(ref));
+    STDEXEC::set_stopped(static_cast<receiver_ref&&>(ref));
     CHECK(stopped.value_.index() == 3);
   }
 
@@ -156,7 +156,7 @@ namespace {
     auto sndr = when_any(just(42));
     CHECK(rcvr.value_.index() == 0);
     auto op = connect(std::move(sndr), std::move(ref));
-    stdexec::start(op);
+    STDEXEC::start(op);
     CHECK(rcvr.value_.index() == 1);
     CHECK(std::get<1>(rcvr.value_) == 42);
   }
@@ -246,7 +246,7 @@ namespace {
   using any_sender_of = any_receiver_ref<completion_signatures<Ts...>>::template any_sender<>;
 
   TEST_CASE("any sender is a sender", "[types][any_sender]") {
-    CHECK(stdexec::sender<any_sender_of<set_value_t()>>);
+    CHECK(STDEXEC::sender<any_sender_of<set_value_t()>>);
     CHECK(std::is_move_assignable_v<any_sender_of<set_value_t()>>);
     CHECK(std::is_nothrow_move_assignable_v<any_sender_of<set_value_t()>>);
     CHECK(!std::is_copy_assignable_v<any_sender_of<set_value_t()>>);
@@ -286,7 +286,7 @@ namespace {
   template <class... Vals>
   using my_sender_of = any_sender_of<set_value_t(Vals)..., set_error_t(std::exception_ptr)>;
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   TEST_CASE("sync_wait returns value and exception", "[types][any_sender]") {
     my_sender_of<int> sender = just(21) | then([&](int v) { return 2 * v; });
     auto [value] = *sync_wait(std::move(sender));
@@ -295,7 +295,7 @@ namespace {
     sender = just(21) | then([&](int) -> int { throw 420; });
     CHECK_THROWS_AS(sync_wait(std::move(sender)), int);
   }
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   TEST_CASE("any_sender is connectable with any_receiver_ref", "[types][any_sender]") {
     using Sigs = completion_signatures<set_value_t(int), set_stopped_t()>;
@@ -308,7 +308,7 @@ namespace {
       receiver_ref ref = rcvr;
       auto op = connect(std::move(sndr), std::move(ref));
       CHECK(rcvr.value_.index() == 0);
-      stdexec::start(op);
+      STDEXEC::start(op);
       CHECK(rcvr.value_.index() == 3);
     }
     sndr = just(42);
@@ -317,7 +317,7 @@ namespace {
       receiver_ref ref = rcvr;
       auto op = connect(std::move(sndr), std::move(ref));
       CHECK(rcvr.value_.index() == 0);
-      stdexec::start(op);
+      STDEXEC::start(op);
       CHECK(rcvr.value_.index() == 1);
     }
     sndr = when_any(just(42));
@@ -326,7 +326,7 @@ namespace {
       receiver_ref ref = rcvr;
       auto op = connect(std::move(sndr), std::move(ref));
       CHECK(rcvr.value_.index() == 0);
-      stdexec::start(op);
+      STDEXEC::start(op);
       CHECK(rcvr.value_.index() == 1);
     }
   }
@@ -335,7 +335,7 @@ namespace {
   using my_stoppable_sender_of =
     any_sender_of<set_value_t(Vals)..., set_error_t(std::exception_ptr), set_stopped_t()>;
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   TEST_CASE("any_sender uses overload rules for completion signatures", "[types][any_sender]") {
     auto split_sender = split(just(42));
     static_assert(sender_of<decltype(split_sender), set_error_t(const std::exception_ptr&)>);
@@ -348,7 +348,7 @@ namespace {
     sender = just(21) | then([&](int) -> int { throw 420; });
     CHECK_THROWS_AS(sync_wait(std::move(sender)), int);
   }
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   class stopped_token {
    private:
@@ -385,7 +385,7 @@ namespace {
 
   template <class Token>
   struct stopped_receiver_base {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
     Token stop_token_{};
   };
 
@@ -393,8 +393,9 @@ namespace {
   struct stopped_receiver_env {
     const stopped_receiver_base<Token>* receiver_;
 
-    friend auto tag_invoke(get_stop_token_t, const stopped_receiver_env& env) noexcept -> Token {
-      return env.receiver_->stop_token_;
+    [[nodiscard]]
+    auto query(get_stop_token_t) const noexcept -> Token {
+      return receiver_->stop_token_;
     }
   };
 
@@ -438,7 +439,7 @@ namespace {
     stop_source.request_stop();
     auto do_check = connect(std::move(sender), std::move(receiver));
     // This CHECKS whether set_value is called
-    stdexec::start(do_check);
+    STDEXEC::start(do_check);
   }
 
   TEST_CASE("any_sender - does connect with an user-defined stop token", "[types][any_sender]") {
@@ -449,14 +450,14 @@ namespace {
       stopped_receiver receiver{token, true};
       auto do_check = connect(std::move(sender), std::move(receiver));
       // This CHECKS whether set_value is called
-      stdexec::start(do_check);
+      STDEXEC::start(do_check);
     }
     SECTION("stopped false") {
       stopped_token token{false};
       stopped_receiver receiver{token, false};
       auto do_check = connect(std::move(sender), std::move(receiver));
       // This CHECKS whether set_value is called
-      stdexec::start(do_check);
+      STDEXEC::start(do_check);
     }
   }
 
@@ -474,7 +475,7 @@ namespace {
     stop_source.request_stop();
     auto do_check = connect(std::move(sender), std::move(receiver));
     // This CHECKS whether a set_stopped is called
-    stdexec::start(do_check);
+    STDEXEC::start(do_check);
   }
 
   TEST_CASE(
@@ -491,7 +492,7 @@ namespace {
     stop_source.request_stop();
     auto do_check = connect(std::move(sender), std::move(receiver));
     // This CHECKS whether a set_stopped is called
-    stdexec::start(do_check);
+    STDEXEC::start(do_check);
   }
 
   TEST_CASE(
@@ -504,14 +505,14 @@ namespace {
     using sender = receiver_ref::any_sender<>;
     static_assert(requires {
       {
-        stdexec::get_completion_signatures(std::declval<sender>())
-      } -> same_as<_ERROR_<__detail::__dependent_completions>>;
+        STDEXEC::get_completion_signatures(std::declval<sender>())
+      } -> std::derived_from<dependent_sender_error>;
     });
     using env = make_env_t<prop<get_stop_token_t, inplace_stop_token>>;
     static_assert(requires {
-      { stdexec::get_completion_signatures(std::declval<sender>(), std::declval<env>()) }
-        -> same_as<Sigs>
-      ;
+      {
+        STDEXEC::get_completion_signatures(std::declval<sender>(), std::declval<env>())
+      } -> std::same_as<Sigs>;
     });
   }
 
@@ -523,7 +524,7 @@ namespace {
 
   TEST_CASE("any scheduler with inline_scheduler", "[types][any_sender]") {
     static_assert(scheduler<my_scheduler<>>);
-    my_scheduler<> scheduler = stdexec::inline_scheduler();
+    my_scheduler<> scheduler = STDEXEC::inline_scheduler();
     my_scheduler<> copied = scheduler;
     CHECK(copied == scheduler);
 
@@ -542,7 +543,7 @@ namespace {
     using my_scheduler2 =
       my_scheduler<get_forward_progress_guarantee.signature<forward_progress_guarantee() noexcept>>;
     static_assert(scheduler<my_scheduler2>);
-    my_scheduler2 scheduler = stdexec::inline_scheduler();
+    my_scheduler2 scheduler = STDEXEC::inline_scheduler();
     my_scheduler2 copied = scheduler;
     CHECK(copied == scheduler);
 
@@ -554,7 +555,7 @@ namespace {
 
     CHECK(
       get_forward_progress_guarantee(scheduler)
-      == get_forward_progress_guarantee(stdexec::inline_scheduler()));
+      == get_forward_progress_guarantee(STDEXEC::inline_scheduler()));
 
     bool called = false;
     sync_wait(std::move(sched) | then([&] { called = true; }));
@@ -648,20 +649,20 @@ namespace {
       any_receiver_ref<completion_signatures<set_stopped_t(), set_error_t(std::exception_ptr)>>;
     using sender_t = receiver_ref::any_sender<>;
     using scheduler_t = sender_t::any_scheduler<>;
-    scheduler_t scheduler = stdexec::inline_scheduler();
+    scheduler_t scheduler = STDEXEC::inline_scheduler();
     {
       auto op = connect(schedule(scheduler), expect_void_receiver{});
-      stdexec::start(op);
+      STDEXEC::start(op);
     }
     scheduler = stopped_scheduler();
     {
       auto op = connect(schedule(scheduler), expect_stopped_receiver{});
-      stdexec::start(op);
+      STDEXEC::start(op);
     }
     scheduler = error_scheduler<>{std::make_exception_ptr(std::logic_error("test"))};
     {
       auto op = connect(schedule(scheduler), expect_error_receiver<>{});
-      stdexec::start(op);
+      STDEXEC::start(op);
     }
   }
 
@@ -670,16 +671,16 @@ namespace {
       any_receiver_ref<completion_signatures<set_stopped_t(), set_error_t(std::exception_ptr)>>;
     using sender_t = receiver_ref::any_sender<>;
     using scheduler_t = sender_t::any_scheduler<>;
-    scheduler_t scheduler = stdexec::inline_scheduler();
+    scheduler_t scheduler = STDEXEC::inline_scheduler();
     auto sched = schedule(scheduler);
     scheduler = stopped_scheduler();
     {
       auto op = connect(schedule(scheduler), expect_stopped_receiver{});
-      stdexec::start(op);
+      STDEXEC::start(op);
     }
     {
       auto op = connect(std::move(sched), expect_void_receiver{});
-      stdexec::start(op);
+      STDEXEC::start(op);
     }
   }
 
@@ -722,11 +723,11 @@ namespace {
       using __id = sender;
       using __t = sender;
 
-      using sender_concept = stdexec::sender_t;
+      using sender_concept = STDEXEC::sender_t;
       using completion_signatures = ex::completion_signatures<ex::set_value_t()>;
 
       template <ex::receiver R>
-      friend auto tag_invoke(ex::connect_t, sender, R r) -> operation<R> {
+      auto connect(R r) const -> operation<R> {
         return {{}, static_cast<R&&>(r)};
       }
 
@@ -758,11 +759,11 @@ namespace {
     using sender_t = receiver_ref::any_sender<>;
     using scheduler_t = sender_t::any_scheduler<>;
     {
-      scheduler_t scheduler = stdexec::inline_scheduler{};
+      scheduler_t scheduler = STDEXEC::inline_scheduler{};
       scheduler = counting_scheduler{};
       {
         auto op = connect(schedule(scheduler), expect_value_receiver<>{});
-        stdexec::start(op);
+        STDEXEC::start(op);
       }
     }
     CHECK(counting_scheduler::count == 0);

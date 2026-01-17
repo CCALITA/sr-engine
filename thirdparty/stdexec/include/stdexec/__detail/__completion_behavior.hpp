@@ -18,16 +18,16 @@
 #include "__execution_fwd.hpp"
 
 // include these after __execution_fwd.hpp
-#include "__config.hpp"
 #include "__concepts.hpp"
-#include "__query.hpp"
+#include "__config.hpp"
 #include "__meta.hpp"
+#include "__query.hpp"
 #include "__utility.hpp"
 
 #include <compare>
 #include <type_traits>
 
-namespace stdexec {
+namespace STDEXEC {
   //////////////////////////////////////////////////////////////////////////////////////////
   // get_completion_behavior
   struct min_t;
@@ -74,7 +74,7 @@ namespace stdexec {
       STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device)
       constexpr auto operator()(completion_behavior::__constant_t<_CBs>...) const noexcept {
         constexpr auto __behavior = static_cast<behavior>(
-          stdexec::__umax({static_cast<std::size_t>(_CBs)...}));
+          STDEXEC::__umax({static_cast<std::size_t>(_CBs)...}));
 
         if constexpr (__behavior == completion_behavior::unknown) {
           return completion_behavior::unknown;
@@ -107,7 +107,7 @@ namespace stdexec {
           __nothrow_member_queryable_with<_Attrs, get_completion_behavior_t, _Env...>,
           "The get_completion_behavior query must be noexcept.");
         static_assert(
-          convertible_to<__result_t, completion_behavior::behavior>,
+          __std::convertible_to<__result_t, completion_behavior::behavior>,
           "The get_completion_behavior query must return one of the static member variables in "
           "execution::completion_behavior.");
         return __result_t{};
@@ -123,13 +123,15 @@ namespace stdexec {
       template <class _Attrs, class... _Env>
       STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device)
       constexpr auto operator()(const _Attrs&, const _Env&...) const noexcept {
-        if constexpr (__member_queryable_with<const _Attrs&, get_completion_behavior_t<_Tag>, _Env...>) {
+        if constexpr (
+          __member_queryable_with<const _Attrs&, get_completion_behavior_t<_Tag>, _Env...>) {
           return __validate<_Attrs, _Env...>();
-        }
-        else if constexpr (__member_queryable_with<const _Attrs&, get_completion_behavior_t<_Tag>>) {
+        } else if constexpr (__member_queryable_with<
+                               const _Attrs&,
+                               get_completion_behavior_t<_Tag>
+                             >) {
           return __validate<_Attrs>();
-        }
-        else {
+        } else {
           return completion_behavior::unknown;
         }
       }
@@ -141,7 +143,7 @@ namespace stdexec {
     };
   } // namespace __queries
 
-  [[deprecated("use stdexec::completion_behavior::weakest instead")]]
+  [[deprecated("use STDEXEC::completion_behavior::weakest instead")]]
   inline constexpr const auto& min = completion_behavior::weakest;
 
   template <class... _CBs>
@@ -164,4 +166,4 @@ namespace stdexec {
       __call_result_t<get_completion_behavior_t<_Tag>, env_of_t<_Sndr>, const _Env&...>;
     return __behavior_t{};
   }
-} // namespace stdexec
+} // namespace STDEXEC

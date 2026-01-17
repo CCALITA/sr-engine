@@ -116,7 +116,7 @@
 #if STDEXEC_MSVC()
 #  define STDEXEC_PRAGMA(_ARG) __pragma(_ARG)
 #else
-#  define STDEXEC_PRAGMA(_ARG) _Pragma(STDEXEC_STRINGIZE(_ARG))
+#  define STDEXEC_PRAGMA(_ARG) _Pragma(STDEXEC_PP_STRINGIZE(_ARG))
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -147,17 +147,81 @@
 #  define STDEXEC_EXEC_CHECK_DISABLE
 #endif
 
+// The following macros are used to define a namespace alias for the standard library.
+// It is used when forward-declaring a standard library type or function, which is not
+// portable but sometimes necessary to avoid pulling in a large header when a fwd decl
+// would do.
+#if defined(_LIBCPP_VERSION)
+#  define STDEXEC_NAMESPACE_STD_BEGIN _LIBCPP_BEGIN_NAMESPACE_STD
+#  define STDEXEC_NAMESPACE_STD_END   _LIBCPP_END_NAMESPACE_STD
+#elif defined(__GLIBCXX__)
+#  define STDEXEC_NAMESPACE_STD_BEGIN                                                              \
+    namespace std {                                                                                \
+      _GLIBCXX_BEGIN_NAMESPACE_VERSION
+#  define STDEXEC_NAMESPACE_STD_END                                                                \
+    _GLIBCXX_END_NAMESPACE_VERSION                                                                 \
+    }
+#elif defined(_MSVC_STL_VERSION)
+#  define STDEXEC_NAMESPACE_STD_BEGIN _STD_BEGIN
+#  define STDEXEC_NAMESPACE_STD_END   _STD_END
+#else
+#  define STDEXEC_NAMESPACE_STD_BEGIN namespace std {
+#  define STDEXEC_NAMESPACE_STD_END   }
+#endif
+
+STDEXEC_NAMESPACE_STD_BEGIN
+namespace execution {
+}
+STDEXEC_NAMESPACE_STD_END
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+#if !defined(STDEXEC_NAMESPACE)
+#  define STDEXEC stdexec
+#else
+#  define STDEXEC STDEXEC_NAMESPACE
+#endif
+
+// Detect if stdexec is being defined within namespace std
+#define STDEXEC_NAMESPACE_IS_WITHIN_STD_PROBE_std STDEXEC_PP_PROBE(~, 1)
+#define STDEXEC_NAMESPACE_IS_WITHIN_STD()                                                          \
+  STDEXEC_PP_CHECK(STDEXEC_PP_CAT(STDEXEC_NAMESPACE_IS_WITHIN_STD_PROBE_, STDEXEC))
+
+#define STDEXEC_NAMESPACE_IS_STD_CHECK_I(_0, _1, ...) STDEXEC_PP_IS_EMPTY(__VA_ARGS__)
+#define STDEXEC_NAMESPACE_IS_STD_CHECK(...)           STDEXEC_NAMESPACE_IS_STD_CHECK_I(__VA_ARGS__)
+#define STDEXEC_NAMESPACE_IS_STD_0()                  0
+#define STDEXEC_NAMESPACE_IS_STD_1()                                                               \
+  STDEXEC_NAMESPACE_IS_STD_CHECK(STDEXEC_PP_CAT(STDEXEC_NAMESPACE_IS_WITHIN_STD_PROBE_, STDEXEC))
+#define STDEXEC_NAMESPACE_IS_STD()                                                                 \
+  STDEXEC_PP_CAT(STDEXEC_NAMESPACE_IS_STD_, STDEXEC_NAMESPACE_IS_WITHIN_STD())()
+
+#if STDEXEC_NAMESPACE_IS_STD()
+#  error stdexec cannot be defined directly in namespace std, but a namespace nested inside std is allowed.
+#endif
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 #if __cpp_impl_coroutine >= 2019'02 && __cpp_lib_coroutine >= 2019'02
 #  include <coroutine> // IWYU pragma: keep
-#  define STDEXEC_STD_NO_COROUTINES() 0
-namespace __coro = std; // NOLINT(misc-unused-alias-decls)
+#  define STDEXEC_NO_STD_COROUTINES() 0
+namespace STDEXEC::__std {
+  namespace __coro = std; // NOLINT(misc-unused-alias-decls)
+}
 #elif defined(__cpp_coroutines) && __has_include(<experimental/coroutine>)
 #  include <experimental/coroutine>
-#  define STDEXEC_STD_NO_COROUTINES() 0
-namespace __coro = std::experimental;
+#  define STDEXEC_NO_STD_COROUTINES() 0
+namespace STDEXEC::__std {
+  namespace __coro = std::experimental; // NOLINT(misc-unused-alias-decls)
+}
 #else
-#  define STDEXEC_STD_NO_COROUTINES() 1
+#  define STDEXEC_NO_STD_COROUTINES() 1
+#endif
+
+#if !STDEXEC_NO_STD_COROUTINES()
+namespace STDEXEC::__std {
+  using __coro::coroutine_handle;
+  using __coro::suspend_always;
+  using __coro::suspend_never;
+  using __coro::noop_coroutine;
+} // namespace STDEXEC::__std
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,9 +230,9 @@ namespace __coro = std::experimental;
 //
 //   STDEXEC_ATTRIBUTE(attr1, attr2, ...)
 //   void foo() { ... }
-#define STDEXEC_ATTRIBUTE(...) STDEXEC_FOR_EACH(STDEXEC__ATTRIBUTE_DETAIL, __VA_ARGS__)
-#define STDEXEC__ATTRIBUTE_DETAIL(_ATTR)                                                           \
-  STDEXEC_CAT(STDEXEC_ATTR_WHICH_, STDEXEC_CHECK(STDEXEC_CAT(STDEXEC_ATTR_, _ATTR)))(_ATTR)
+#define STDEXEC_ATTRIBUTE_I(_ATTR)                                                                 \
+  STDEXEC_PP_CAT(STDEXEC_ATTR_WHICH_, STDEXEC_PP_CHECK(STDEXEC_PP_CAT(STDEXEC_ATTR_, _ATTR)))(_ATTR)
+#define STDEXEC_ATTRIBUTE(...) STDEXEC_PP_FOR_EACH(STDEXEC_ATTRIBUTE_I, __VA_ARGS__)
 
 // unknown attributes are treated like C++-style attributes
 #define STDEXEC_ATTR_WHICH_0(_ATTR) [[_ATTR]]
@@ -179,16 +243,16 @@ namespace __coro = std::experimental;
 #else
 #  define STDEXEC_ATTR_WHICH_1(_ATTR)
 #endif
-#define STDEXEC_ATTR_host     STDEXEC_PROBE(~, 1)
-#define STDEXEC_ATTR___host__ STDEXEC_PROBE(~, 1)
+#define STDEXEC_ATTR_host     STDEXEC_PP_PROBE(~, 1)
+#define STDEXEC_ATTR___host__ STDEXEC_PP_PROBE(~, 1)
 
 #if defined(__CUDACC__) && !STDEXEC_NVHPC()
 #  define STDEXEC_ATTR_WHICH_2(_ATTR) __device__
 #else
 #  define STDEXEC_ATTR_WHICH_2(_ATTR)
 #endif
-#define STDEXEC_ATTR_device     STDEXEC_PROBE(~, 2)
-#define STDEXEC_ATTR___device__ STDEXEC_PROBE(~, 2)
+#define STDEXEC_ATTR_device     STDEXEC_PP_PROBE(~, 2)
+#define STDEXEC_ATTR___device__ STDEXEC_PP_PROBE(~, 2)
 
 #if STDEXEC_NVHPC()
 // NVBUG #4067067: NVHPC does not fully support [[no_unique_address]]
@@ -215,7 +279,7 @@ namespace __coro = std::experimental;
 #else
 #  define STDEXEC_ATTR_WHICH_3(_ATTR) [[no_unique_address]]
 #endif
-#define STDEXEC_ATTR_no_unique_address STDEXEC_PROBE(~, 3)
+#define STDEXEC_ATTR_no_unique_address STDEXEC_PP_PROBE(~, 3)
 
 #if STDEXEC_MSVC()
 #  define STDEXEC_ATTR_WHICH_4(_ATTR) __forceinline
@@ -227,40 +291,40 @@ namespace __coro = std::experimental;
 #else
 #  define STDEXEC_ATTR_WHICH_4(_ATTR) /*nothing*/
 #endif
-#define STDEXEC_ATTR_always_inline STDEXEC_PROBE(~, 4)
+#define STDEXEC_ATTR_always_inline STDEXEC_PP_PROBE(~, 4)
 
 #if STDEXEC_CLANG() || STDEXEC_GCC()
 #  define STDEXEC_ATTR_WHICH_5(_ATTR) __attribute__((__weak__))
 #else
 #  define STDEXEC_ATTR_WHICH_5(_ATTR) /*nothing*/
 #endif
-#define STDEXEC_ATTR_weak     STDEXEC_PROBE(~, 5)
-#define STDEXEC_ATTR___weak__ STDEXEC_PROBE(~, 5)
+#define STDEXEC_ATTR_weak     STDEXEC_PP_PROBE(~, 5)
+#define STDEXEC_ATTR___weak__ STDEXEC_PP_PROBE(~, 5)
 
 #if STDEXEC_HAS_ATTRIBUTE(__preferred_name__)
 #  define STDEXEC_ATTR_WHICH_6(_ATTR) __attribute__((_ATTR))
 #else
 #  define STDEXEC_ATTR_WHICH_6(_ATTR) /*nothing*/
 #endif
-#define STDEXEC_ATTR_preferred_name     STDEXEC_PROBE(~, 6)
-#define STDEXEC_ATTR___preferred_name__ STDEXEC_PROBE(~, 6)
+#define STDEXEC_ATTR_preferred_name     STDEXEC_PP_PROBE(~, 6)
+#define STDEXEC_ATTR___preferred_name__ STDEXEC_PP_PROBE(~, 6)
 
 #if defined(__launch_bounds__) && !STDEXEC_NVHPC()
-#  define STDEXEC_ATTR_WHICH_7(_ATTR) STDEXEC_CAT(STDEXEC_ATTR_NORMALIZE_, _ATTR)
+#  define STDEXEC_ATTR_WHICH_7(_ATTR) STDEXEC_PP_CAT(STDEXEC_ATTR_NORMALIZE_, _ATTR)
 #else
 #  define STDEXEC_ATTR_WHICH_7(_ATTR)
 #endif
 #define STDEXEC_ATTR_NORMALIZE_launch_bounds(...)     __launch_bounds__(__VA_ARGS__)
 #define STDEXEC_ATTR_NORMALIZE___launch_bounds__(...) __launch_bounds__(__VA_ARGS__)
-#define STDEXEC_ATTR_launch_bounds(...)               STDEXEC_PROBE(~, 7)
-#define STDEXEC_ATTR___launch_bounds__(...)           STDEXEC_PROBE(~, 7)
+#define STDEXEC_ATTR_launch_bounds(...)               STDEXEC_PP_PROBE(~, 7)
+#define STDEXEC_ATTR___launch_bounds__(...)           STDEXEC_PP_PROBE(~, 7)
 
 #if STDEXEC_MSVC() && !STDEXEC_CLANG_CL()
 #  define STDEXEC_ATTR_WHICH_8(_ATTR) __declspec(_ATTR)
 #else
 #  define STDEXEC_ATTR_WHICH_8(_ATTR) /*nothing*/
 #endif
-#define STDEXEC_ATTR_empty_bases STDEXEC_PROBE(~, 8)
+#define STDEXEC_ATTR_empty_bases STDEXEC_PP_PROBE(~, 8)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // warning push/pop portability macros
@@ -338,7 +402,7 @@ namespace __coro = std::experimental;
 #if STDEXEC_HAS_BUILTIN(__is_const)
 #  define STDEXEC_IS_CONST(...) __is_const(__VA_ARGS__)
 #else
-#  define STDEXEC_IS_CONST(...) stdexec::__is_const_<__VA_ARGS__>
+#  define STDEXEC_IS_CONST(...) STDEXEC::__is_const_<__VA_ARGS__>
 #endif
 
 #if STDEXEC_HAS_BUILTIN(__is_function)
@@ -356,7 +420,7 @@ namespace __coro = std::experimental;
 // msvc replaces std::is_same_v with a compile-time constant
 #  define STDEXEC_IS_SAME(...) std::is_same_v<__VA_ARGS__>
 #else
-#  define STDEXEC_IS_SAME(...) stdexec::__same_as_v<__VA_ARGS__>
+#  define STDEXEC_IS_SAME(...) STDEXEC::__same_as_v<__VA_ARGS__>
 #endif
 
 #if STDEXEC_HAS_BUILTIN(__is_constructible) || STDEXEC_MSVC()
@@ -384,30 +448,30 @@ namespace __coro = std::experimental;
 #endif
 
 #if STDEXEC_HAS_BUILTIN(__remove_reference)
-namespace stdexec {
+namespace STDEXEC {
   template <class Ty>
-  using _remove_reference_t = __remove_reference(Ty);
-} // namespace stdexec
+  using __unref_t = __remove_reference(Ty);
+} // namespace STDEXEC
 
-#  define STDEXEC_REMOVE_REFERENCE(...) stdexec::_remove_reference_t<__VA_ARGS__>
+#  define STDEXEC_REMOVE_REFERENCE(...) STDEXEC::__unref_t<__VA_ARGS__>
 #elif STDEXEC_HAS_BUILTIN(__remove_reference_t)
-namespace stdexec {
+namespace STDEXEC {
   template <class Ty>
-  using _remove_reference_t = __remove_reference_t(Ty);
-} // namespace stdexec
+  using __unref_t = __remove_reference_t(Ty);
+} // namespace STDEXEC
 
-#  define STDEXEC_REMOVE_REFERENCE(...) stdexec::_remove_reference_t<__VA_ARGS__>
+#  define STDEXEC_REMOVE_REFERENCE(...) STDEXEC::__unref_t<__VA_ARGS__>
 #else
 #  define STDEXEC_REMOVE_REFERENCE(...) ::std::remove_reference_t<__VA_ARGS__>
 #endif
 
-namespace stdexec {
+namespace STDEXEC {
   template <class _Ap, class _Bp>
   inline constexpr bool __same_as_v = false;
 
   template <class _Ap>
   inline constexpr bool __same_as_v<_Ap, _Ap> = true;
-} // namespace stdexec
+} // namespace STDEXEC
 
 #if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 2022'02L
 #  define STDEXEC_UNREACHABLE() std::unreachable()
@@ -454,9 +518,9 @@ namespace stdexec {
 // https://github.com/llvm/llvm-project/issues/116105
 #if defined(__cpp_pack_indexing) && !STDEXEC_NVCC()                                                \
   && !(STDEXEC_CLANG() && STDEXEC_CLANG_VERSION < 20'00)
-#  define STDEXEC_STD_NO_PACK_INDEXING() 0
+#  define STDEXEC_NO_STD_PACK_INDEXING() 0
 #else // ^^^ has pack indexing ^^^ / vvv no pack indexing vvv
-#  define STDEXEC_STD_NO_PACK_INDEXING() 1
+#  define STDEXEC_NO_STD_PACK_INDEXING() 1
 #endif // no pack indexing
 
 #if STDEXEC_HAS_FEATURE(thread_sanitizer) || defined(__SANITIZE_THREAD__)
@@ -540,11 +604,22 @@ namespace stdexec {
 #endif
 
 #if STDEXEC_CUDA_COMPILATION() && defined(__CUDA_ARCH__)
-#  define STDEXEC_STD_NO_EXCEPTIONS() 1
+#  define STDEXEC_NO_STD_EXCEPTIONS() 1
 #elif STDEXEC_MSVC() || STDEXEC_CLANG_CL()
-#  define STDEXEC_STD_NO_EXCEPTIONS() (_HAS_EXCEPTIONS == 0) || (_CPPUNWIND == 0)
+#  define STDEXEC_NO_STD_EXCEPTIONS() (_HAS_EXCEPTIONS == 0) || (_CPPUNWIND == 0)
 #else
-#  define STDEXEC_STD_NO_EXCEPTIONS() (__EXCEPTIONS == 0)
+#  define STDEXEC_NO_STD_EXCEPTIONS() (__EXCEPTIONS == 0)
+#endif
+
+#if defined(__cpp_constexpr_exceptions) && __cpp_constexpr_exceptions >= 2024'11L
+#  if !STDEXEC_NO_STD_EXCEPTIONS()
+// https://wg21.link/p3068
+#    define STDEXEC_NO_STD_CONSTEXPR_EXCEPTIONS() 0
+#  else
+#    define STDEXEC_NO_STD_CONSTEXPR_EXCEPTIONS() 1
+#  endif
+#else
+#  define STDEXEC_NO_STD_CONSTEXPR_EXCEPTIONS() 1
 #endif
 
 // We need to treat host and device separately
@@ -597,11 +672,11 @@ namespace stdexec {
 //   {
 //     printf("unknown error\n");
 //   }
-#if STDEXEC_STD_NO_EXCEPTIONS()
+#if STDEXEC_NO_STD_EXCEPTIONS()
 #  define STDEXEC_TRY               if constexpr (true) {
-#  define STDEXEC_CATCH(...)        } else if constexpr (__VA_ARGS__ = ::stdexec::__catch_any_lvalue; false) {
+#  define STDEXEC_CATCH(...)        } else if constexpr (__VA_ARGS__ = ::STDEXEC::__catch_any_lvalue; false) {
 #  define STDEXEC_CATCH_ALL         } else if constexpr (true) {} else
-#  define STDEXEC_THROW(...)        ::stdexec::__terminate()
+#  define STDEXEC_THROW(...)        ::STDEXEC::__terminate()
 #  define STDEXEC_CATCH_FALLTHROUGH } else {}
 #else
 #  define STDEXEC_TRY               try
@@ -613,7 +688,7 @@ namespace stdexec {
 
 // clang-format on
 
-namespace stdexec {
+namespace STDEXEC {
   // Used by the STDEXEC_CATCH macro to provide a stub initialization of the exception object.
   constexpr struct __catch_any_lvalue_t {
     template <class _Tp>
@@ -627,14 +702,14 @@ namespace stdexec {
     STDEXEC_IF_DEVICE(__trap())
     STDEXEC_UNREACHABLE();
   }
-} // namespace stdexec
+} // namespace STDEXEC
 
 ///////////////////////////////////////////////////////////////////////////////
-/// To hook a customization point like stdexec::connect, define a member
+/// To hook a customization point like STDEXEC::connect, define a member
 /// function like this:
 ///
 /// @code
-/// template <same_as<self_t> Self, class Receiver>
+/// template <__std::same_as<self_t> Self, class Receiver>
 /// STDEXEC_EXPLICIT_THIS_BEGIN(auto connect)(this Self&& self, Receiver rcvr) {
 ///   return ...;
 /// }
@@ -649,61 +724,39 @@ namespace stdexec {
 #else
 
 #  define STDEXEC_EXPLICIT_THIS_BEGIN(...)                                                         \
-    static STDEXEC_EXPAND(STDEXEC_CAT(STDEXEC_EXPLICIT_THIS_MANGLE_, __VA_ARGS__) STDEXEC_RPAREN)  \
-      STDEXEC_LPAREN STDEXEC_EXPLICIT_THIS_ARGS
+    static STDEXEC_PP_EXPAND(STDEXEC_PP_CAT(STDEXEC_EXPLICIT_THIS_MANGLE_, __VA_ARGS__)            \
+                               STDEXEC_PP_RPAREN) STDEXEC_PP_LPAREN STDEXEC_EXPLICIT_THIS_ARGS
 
 #  define STDEXEC_EXPLICIT_THIS_ARGS(...)                                                          \
-    STDEXEC_CAT(STDEXEC_EXPLICIT_THIS_EAT_, __VA_ARGS__) STDEXEC_RPAREN
+    STDEXEC_PP_CAT(STDEXEC_EXPLICIT_THIS_EAT_, __VA_ARGS__) STDEXEC_PP_RPAREN
 
 #  define STDEXEC_EXPLICIT_THIS_END(_FN)                                                           \
     template <class... Ts>                                                                         \
       STDEXEC_ATTRIBUTE(always_inline)                                                             \
       auto _FN(Ts&&... ts)                                                                         \
       && STDEXEC_AUTO_RETURN(                                                                      \
-        decltype(stdexec::__get_self<Ts...>(                                                       \
-          *this))::STDEXEC_CAT(static_, _FN)(std::move(*this), static_cast<Ts&&>(ts)...))          \
+        decltype(STDEXEC::__get_self<Ts...>(                                                       \
+          *this))::STDEXEC_PP_CAT(static_, _FN)(std::move(*this), static_cast<Ts&&>(ts)...))       \
                                                                                                    \
         template <class... Ts>                                                                     \
         STDEXEC_ATTRIBUTE(always_inline)                                                           \
         auto _FN(Ts&&... ts) const & STDEXEC_AUTO_RETURN(                                          \
-          decltype(stdexec::__get_self<Ts...>(                                                     \
-            *this))::STDEXEC_CAT(static_, _FN)(*this, static_cast<Ts&&>(ts)...))
+          decltype(STDEXEC::__get_self<Ts...>(                                                     \
+            *this))::STDEXEC_PP_CAT(static_, _FN)(*this, static_cast<Ts&&>(ts)...))
 
 #  define STDEXEC_EXPLICIT_THIS_EAT_this
 #  define STDEXEC_EXPLICIT_THIS_EAT_auto
 #  define STDEXEC_EXPLICIT_THIS_EAT_void
-#  define STDEXEC_EXPLICIT_THIS_MANGLE_auto   auto STDEXEC_EXPLICIT_THIS_MANGLE STDEXEC_LPAREN
-#  define STDEXEC_EXPLICIT_THIS_MANGLE_void   void STDEXEC_EXPLICIT_THIS_MANGLE STDEXEC_LPAREN
-#  define STDEXEC_EXPLICIT_THIS_MANGLE(_NAME) STDEXEC_CAT(static_, _NAME)
+#  define STDEXEC_EXPLICIT_THIS_MANGLE_auto   auto STDEXEC_EXPLICIT_THIS_MANGLE STDEXEC_PP_LPAREN
+#  define STDEXEC_EXPLICIT_THIS_MANGLE_void   void STDEXEC_EXPLICIT_THIS_MANGLE STDEXEC_PP_LPAREN
+#  define STDEXEC_EXPLICIT_THIS_MANGLE(_NAME) STDEXEC_PP_CAT(static_, _NAME)
 
-namespace stdexec {
+namespace STDEXEC {
   template <class... _Ts, class _Self>
   auto __get_self(const _Self&) -> _Self;
-} // namespace stdexec
+} // namespace STDEXEC
 
 #endif // !STDEXEC_HAS_STD_EXPLICIT_THIS()
-
-// The following macros are used to define a namespace alias for the standard library.
-// It is used when forward-declaring a standard library type or function, which is not
-// portable but sometimes necessary to avoid pulling in a large header when a fwd decl
-// would do.
-#if defined(_LIBCPP_VERSION)
-#  define STDEXEC_NAMESPACE_STD_BEGIN _LIBCPP_BEGIN_NAMESPACE_STD
-#  define STDEXEC_NAMESPACE_STD_END   _LIBCPP_END_NAMESPACE_STD
-#elif defined(__GLIBCXX__)
-#  define STDEXEC_NAMESPACE_STD_BEGIN                                                              \
-    namespace std {                                                                                \
-      _GLIBCXX_BEGIN_NAMESPACE_VERSION
-#  define STDEXEC_NAMESPACE_STD_END                                                                \
-    _GLIBCXX_END_NAMESPACE_VERSION                                                                 \
-    }
-#elif defined(_MSVC_STL_VERSION)
-#  define STDEXEC_NAMESPACE_STD_BEGIN _STD_BEGIN
-#  define STDEXEC_NAMESPACE_STD_END   _STD_END
-#else
-#  define STDEXEC_NAMESPACE_STD_BEGIN namespace std {
-#  define STDEXEC_NAMESPACE_STD_END   }
-#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 #if STDEXEC_CLANG() && STDEXEC_CUDA_COMPILATION() && !defined(STDEXEC_CLANG_TIDY_INVOKED)
@@ -744,5 +797,5 @@ namespace stdexec {
 #  endif
 #endif
 
-namespace stdexec {
+namespace STDEXEC {
 }

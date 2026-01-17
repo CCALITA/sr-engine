@@ -16,14 +16,14 @@
  */
 
 #include <catch2/catch.hpp>
+#include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
+#include <test_common/receivers.hpp>
 #include <test_common/schedulers.hpp>
 #include <test_common/senders.hpp>
-#include <test_common/receivers.hpp>
 #include <test_common/type_helpers.hpp>
-#include <exec/static_thread_pool.hpp>
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 using namespace std::chrono_literals;
 
@@ -34,7 +34,7 @@ namespace {
     using Snd = decltype(snd);
     static_assert(ex::enable_sender<Snd>);
     static_assert(ex::sender<Snd>);
-    static_assert(ex::same_as<ex::env_of_t<Snd>, ex::env<>>);
+    static_assert(std::same_as<ex::env_of_t<Snd>, ex::env<>>);
     (void) snd;
   }
 
@@ -43,7 +43,7 @@ namespace {
     using Snd = decltype(snd);
     static_assert(ex::enable_sender<Snd>);
     static_assert(ex::sender_in<Snd, ex::env<>>);
-    static_assert(ex::same_as<ex::env_of_t<Snd>, ex::env<>>);
+    static_assert(std::same_as<ex::env_of_t<Snd>, ex::env<>>);
     (void) snd;
   }
 
@@ -387,7 +387,7 @@ namespace {
 
     SECTION("lvalue split copyable sender") {
       auto multishot = ex::split(ex::just(copy_and_movable_type{0}));
-      ex::get_completion_signatures(multishot, ex::env<>{});
+      (void) ex::get_completion_signatures(multishot, ex::env<>{});
       auto snd = multishot | ex::then([](const copy_and_movable_type&) { });
 
       REQUIRE(!ex::sender_of<decltype(multishot), ex::set_value_t(copy_and_movable_type)>);
@@ -490,12 +490,7 @@ namespace {
     using completion_signatures = ex::completion_signatures_of_t<decltype(ex::just())>;
 
     template <class Recv>
-    friend auto tag_invoke(ex::connect_t, my_sender&&, Recv&& recv) {
-      return ex::connect(ex::just(), std::forward<Recv>(recv));
-    }
-
-    template <class Recv>
-    friend auto tag_invoke(ex::connect_t, const my_sender&, Recv&& recv) {
+    auto connect(Recv&& recv) const {
       return ex::connect(ex::just(), std::forward<Recv>(recv));
     }
   };
@@ -508,7 +503,7 @@ namespace {
     using Snd = decltype(snd2);
     static_assert(ex::enable_sender<Snd>);
     static_assert(ex::sender<Snd>);
-    static_assert(ex::same_as<ex::env_of_t<Snd>, ex::env<>>);
+    static_assert(std::same_as<ex::env_of_t<Snd>, ex::env<>>);
     (void) snd1;
     (void) snd2;
   }

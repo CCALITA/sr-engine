@@ -19,19 +19,14 @@
 
 // include these after __execution_fwd.hpp
 #include "__completion_behavior.hpp"
-#include "__config.hpp"
 #include "__concepts.hpp"
+#include "__config.hpp"
 #include "__query.hpp"
-#include "__tag_invoke.hpp" // IWYU pragma: keep for tag_invoke_result_t
 
-namespace stdexec {
+namespace STDEXEC {
   //////////////////////////////////////////////////////////////////////////////////////////////////
   // [exec.queries]
   namespace __queries {
-    // TODO: implement allocator concept
-    template <class _T0>
-    concept __allocator_c = true;
-
     //////////////////////////////////////////////////////////////////////////////////
     // [exec.get.allocator]
     struct get_allocator_t : __query<get_allocator_t> {
@@ -45,7 +40,7 @@ namespace stdexec {
       STDEXEC_ATTRIBUTE(always_inline, host, device)
       static constexpr void __validate() noexcept {
         static_assert(__nothrow_callable<get_allocator_t, const _Env&>);
-        static_assert(__allocator_c<__call_result_t<get_allocator_t, const _Env&>>);
+        static_assert(__allocator_<__call_result_t<get_allocator_t, const _Env&>>);
       }
 
       STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device)
@@ -149,4 +144,4 @@ namespace stdexec {
 
   template <class _Sender>
   STDEXEC_HOST_DEVICE_DEDUCTION_GUIDE __sync_attrs(const _Sender&) -> __sync_attrs<_Sender>;
-} // namespace stdexec
+} // namespace STDEXEC

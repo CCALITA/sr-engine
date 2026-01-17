@@ -27,7 +27,7 @@
 #include "__transform_sender.hpp"
 #include "__type_traits.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   ////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.split]
   namespace __split {
@@ -39,7 +39,7 @@ namespace stdexec {
       template <sender _Sender, class _Env = env<>>
         requires sender_in<_Sender, _Env> && __decay_copyable<env_of_t<_Sender>>
       auto operator()(_Sender&& __sndr, _Env&& __env = {}) const -> __well_formed_sender auto {
-        return stdexec::transform_sender(
+        return STDEXEC::transform_sender(
           __make_sexpr<split_t>(__env, static_cast<_Sender&&>(__sndr)), __env);
       }
 
@@ -56,15 +56,15 @@ namespace stdexec {
         using _Receiver = __receiver_t<__child_of<_Sender>, __decay_t<__data_of<_Sender>>>;
         static_assert(sender_to<__child_of<_Sender>, _Receiver>);
 
-        return __sexpr_apply(
-          static_cast<_Sender&&>(__sndr),
+        return __apply(
           [&]<class _Env2, class _Child>(__ignore, _Env2&& __env, _Child&& __child) {
             // The shared state starts life with a ref-count of one.
             auto* __sh_state =
               new __shared_state{static_cast<_Child&&>(__child), static_cast<_Env2&&>(__env)};
 
             return __make_sexpr<__split_t>(__box{__split_t(), __sh_state});
-          });
+          },
+          static_cast<_Sender&&>(__sndr));
       }
 
       template <class _Sender, class _Env>
@@ -94,4 +94,4 @@ namespace stdexec {
         }
       };
   };
-} // namespace stdexec
+} // namespace STDEXEC

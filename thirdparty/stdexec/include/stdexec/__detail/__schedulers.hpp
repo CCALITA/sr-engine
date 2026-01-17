@@ -18,12 +18,13 @@
 #include "__execution_fwd.hpp"
 
 // include these after __execution_fwd.hpp
+#include "__completion_signatures_of.hpp" // IWYU pragma: keep for the sender concept
 #include "__config.hpp"
 #include "__domain.hpp"
 #include "__query.hpp"
-#include "__senders_core.hpp" // IWYU pragma: keep for the sender concept
+#include "__utility.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   // scheduler concept opt-in tag
   struct scheduler_t { };
 
@@ -49,9 +50,10 @@ namespace stdexec {
       }
 
       template <class _Scheduler>
-        requires(!__has_schedule_member<_Scheduler>) && tag_invocable<schedule_t, _Scheduler>
-      STDEXEC_ATTRIBUTE(host, device, always_inline)
-      auto operator()(_Scheduler&& __sched) const
+        requires __has_schedule_member<_Scheduler> || tag_invocable<schedule_t, _Scheduler>
+      [[deprecated("the use of tag_invoke for schedule is deprecated")]]
+      STDEXEC_ATTRIBUTE(host, device, always_inline) //
+        auto operator()(_Scheduler&& __sched) const
         noexcept(nothrow_tag_invocable<schedule_t, _Scheduler>)
           -> tag_invoke_result_t<schedule_t, _Scheduler> {
         static_assert(sender<tag_invoke_result_t<schedule_t, _Scheduler>>);
@@ -71,8 +73,8 @@ namespace stdexec {
   // [exec.sched]
   template <class _Scheduler>
   concept scheduler = __callable<schedule_t, _Scheduler> //
-                   && equality_comparable<__decay_t<_Scheduler>>
-                   && copy_constructible<__decay_t<_Scheduler>>
+                   && __std::equality_comparable<__decay_t<_Scheduler>>
+                   && __std::copy_constructible<__decay_t<_Scheduler>>
                    && std::is_nothrow_move_constructible_v<__decay_t<_Scheduler>>;
 
   template <scheduler _Scheduler>
@@ -190,10 +192,8 @@ namespace stdexec {
               return _Self{}(__read_query_t{}(__sch, __env...), __env...);
             }
           } else {
-            if constexpr (__callable<
-                            __read_query_t,
-                            env_of_t<schedule_result_t<_Sch>>,
-                            const _Env&...>) {
+            if constexpr (
+              __callable<__read_query_t, env_of_t<schedule_result_t<_Sch>>, const _Env&...>) {
               STDEXEC_ASSERT_FN(__sch == __read_query_t{}(get_env(__sch.schedule()), __env...));
             }
             return __sch;
@@ -204,11 +204,13 @@ namespace stdexec {
       template <class _Attrs, class... _Env, class _Sch>
       static constexpr auto __check_domain(_Sch __sch) noexcept -> _Sch {
         static_assert(scheduler<_Sch>);
-        if constexpr (__callable<get_completion_domain_t<_Tag>, const _Attrs&, const _Env&...>)
-        {
-          using __domain_t = __call_result_t<get_completion_domain_t<_Tag>, const _Attrs&, const _Env&...>;
-          static_assert(__same_as<__domain_t, __detail::__scheduler_domain_t<_Sch, const _Env&...>>,
-                        "the sender claims to complete on a domain that is not the domain of its completion scheduler");
+        if constexpr (__callable<get_completion_domain_t<_Tag>, const _Attrs&, const _Env&...>) {
+          using __domain_t =
+            __call_result_t<get_completion_domain_t<_Tag>, const _Attrs&, const _Env&...>;
+          static_assert(
+            __same_as<__domain_t, __detail::__scheduler_domain_t<_Sch, const _Env&...>>,
+            "the sender claims to complete on a domain that is not the domain of its completion "
+            "scheduler");
         }
         return __sch;
       }
@@ -285,7 +287,8 @@ namespace stdexec {
       template <class _Attrs>
       STDEXEC_ATTRIBUTE(always_inline, host, device)
       static constexpr void __validate() noexcept {
-        static_assert(same_as<bool, __call_result_t<execute_may_block_caller_t, const _Attrs&>>);
+        static_assert(
+          __std::same_as<bool, __call_result_t<execute_may_block_caller_t, const _Attrs&>>);
         static_assert(__nothrow_callable<execute_may_block_caller_t, const _Attrs&>);
       }
     };
@@ -300,7 +303,7 @@ namespace stdexec {
       STDEXEC_ATTRIBUTE(always_inline, host, device)
       static constexpr void __validate() noexcept {
         using __result_t = __call_result_t<get_forward_progress_guarantee_t, const _Attrs&>;
-        static_assert(same_as<forward_progress_guarantee, __result_t>);
+        static_assert(__std::same_as<forward_progress_guarantee, __result_t>);
         static_assert(__nothrow_callable<get_forward_progress_guarantee_t, const _Attrs&>);
       }
     };
@@ -413,4 +416,4 @@ namespace stdexec {
   inline constexpr auto& get_delegatee_scheduler
     [[deprecated("get_delegatee_scheduler has been renamed get_delegation_scheduler")]]
     = get_delegation_scheduler;
-} // namespace stdexec
+} // namespace STDEXEC

@@ -18,32 +18,36 @@
 #include "__execution_fwd.hpp"
 
 // include these after __execution_fwd.hpp
+#include "../stop_token.hpp"
 #include "__basic_sender.hpp"
+#include "__completion_behavior.hpp"
 #include "__completion_signatures.hpp"
 #include "__concepts.hpp"
 #include "__diagnostics.hpp"
 #include "__env.hpp"
-#include "__optional.hpp"
 #include "__meta.hpp"
+#include "__optional.hpp"
+#include "__queries.hpp"
 #include "__receivers.hpp"
+#include "__schedulers.hpp"
 #include "__submit.hpp" // IWYU pragma: keep
 
 #include <exception>
 
-namespace stdexec {
+namespace STDEXEC {
   namespace __read {
     template <class _Tag, class _ReceiverId>
-    using __result_t = __call_result_t<_Tag, env_of_t<stdexec::__t<_ReceiverId>>>;
+    using __result_t = __call_result_t<_Tag, env_of_t<STDEXEC::__t<_ReceiverId>>>;
 
     template <class _Tag, class _ReceiverId>
-    concept __nothrow_t = __nothrow_callable<_Tag, env_of_t<stdexec::__t<_ReceiverId>>>;
+    concept __nothrow_t = __nothrow_callable<_Tag, env_of_t<STDEXEC::__t<_ReceiverId>>>;
 
     inline constexpr __mstring __query_failed_diag =
       "The current execution environment doesn't have a value for the given query."_mstr;
 
     template <class _Tag, class _Env>
     using __query_failed_error = __mexception<
-      _NOT_CALLABLE_<"In stdexec::read_env()..."_mstr, __query_failed_diag>,
+      _NOT_CALLABLE_<"In STDEXEC::read_env()..."_mstr, __query_failed_diag>,
       _WITH_QUERY_<_Tag>,
       _WITH_ENVIRONMENT_<_Env>
     >;
@@ -84,9 +88,10 @@ namespace stdexec {
 
       static constexpr auto get_attrs = [](__ignore) noexcept
         -> env<
-            cprop<get_completion_behavior_t<set_value_t>, completion_behavior::inline_completion>,
-            cprop<get_completion_behavior_t<set_stopped_t>, completion_behavior::inline_completion>,
-            cprop<get_completion_behavior_t<set_error_t>, completion_behavior::inline_completion>> {
+          cprop<get_completion_behavior_t<set_value_t>, completion_behavior::inline_completion>,
+          cprop<get_completion_behavior_t<set_stopped_t>, completion_behavior::inline_completion>,
+          cprop<get_completion_behavior_t<set_error_t>, completion_behavior::inline_completion>
+        > {
         return {};
       };
 
@@ -109,16 +114,16 @@ namespace stdexec {
         using __result = _State::__result;
         if constexpr (__same_as<__result, __result&&>) {
           // The query returns a reference type; pass it straight through to the receiver.
-          stdexec::__set_value_invoke(
-            static_cast<_Receiver&&>(__rcvr), __query(), stdexec::get_env(__rcvr));
+          STDEXEC::__set_value_invoke(
+            static_cast<_Receiver&&>(__rcvr), __query(), STDEXEC::get_env(__rcvr));
         } else {
           constexpr bool _Nothrow = __nothrow_callable<__query, env_of_t<_Receiver>>;
           auto __query_fn = [&]() noexcept(_Nothrow) -> __result&& {
             __state.__result_.__emplace_from(
-              [&]() noexcept(_Nothrow) { return __query()(stdexec::get_env(__rcvr)); });
+              [&]() noexcept(_Nothrow) { return __query()(STDEXEC::get_env(__rcvr)); });
             return static_cast<__result&&>(*__state.__result_);
           };
-          stdexec::__set_value_invoke(static_cast<_Receiver&&>(__rcvr), __query_fn);
+          STDEXEC::__set_value_invoke(static_cast<_Receiver&&>(__rcvr), __query_fn);
         }
       };
 
@@ -128,8 +133,8 @@ namespace stdexec {
       {
         static_assert(sender_expr_for<_Sender, read_env_t>);
         using __query = __data_of<_Sender>;
-        stdexec::__set_value_invoke(
-          static_cast<_Receiver&&>(__rcvr), __query(), stdexec::get_env(__rcvr));
+        STDEXEC::__set_value_invoke(
+          static_cast<_Receiver&&>(__rcvr), __query(), STDEXEC::get_env(__rcvr));
       };
     };
   } // namespace __read
@@ -162,9 +167,9 @@ namespace stdexec {
     }
 
     template <class _Tag>
-    //STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device)
+    STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device)
     constexpr auto get_stop_token_t::operator()() const noexcept {
       return read_env(get_stop_token);
     }
   } // namespace __queries
-} // namespace stdexec
+} // namespace STDEXEC

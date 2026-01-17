@@ -16,10 +16,10 @@
 
 #include "stdexec/__detail/__env.hpp"
 #include <catch2/catch.hpp>
+#include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 #include <test_common/schedulers.hpp>
 #include <test_common/type_helpers.hpp>
-#include <exec/static_thread_pool.hpp>
 // #include <exec/env.hpp>
 
 #include <chrono> // IWYU pragma: keep for std::chrono_literals
@@ -28,7 +28,7 @@
 #  include <memory_resource>
 #endif
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 using namespace std::chrono_literals;
 
@@ -164,7 +164,8 @@ namespace {
 
     template <ex::__completion_tag Tag>
     [[nodiscard]]
-    auto query(ex::get_completion_scheduler_t<Tag>, ex::__ignore = {}) const noexcept -> custom_scheduler {
+    auto query(ex::get_completion_scheduler_t<Tag>, ex::__ignore = {}) const noexcept
+      -> custom_scheduler {
       return *this;
     }
 
@@ -249,7 +250,7 @@ namespace {
     ex::run_loop loop;
     auto sch = loop.get_scheduler();
     auto snd = ex::get_scheduler() | ex::let_value([](auto sched) {
-                 static_assert(ex::same_as<decltype(sched), ex::run_loop::scheduler>);
+                 static_assert(std::same_as<decltype(sched), ex::run_loop::scheduler>);
                  return ex::starts_on(sched, ex::just());
                });
     ex::start_detached(ex::on(sch, std::move(snd)));
@@ -263,7 +264,7 @@ namespace {
     ex::run_loop loop;
     auto sch = loop.get_scheduler();
     auto snd = ex::get_scheduler() | ex::let_value([](auto sched) {
-                 static_assert(ex::same_as<decltype(sched), ex::run_loop::scheduler>);
+                 static_assert(std::same_as<decltype(sched), ex::run_loop::scheduler>);
                  return ex::starts_on(sched, ex::just());
                });
     ex::start_detached(ex::on(sch, std::move(snd)), env{});

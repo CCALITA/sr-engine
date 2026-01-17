@@ -20,10 +20,10 @@
 #include <exception>
 #include <utility>
 
-#include "../stdexec/execution.hpp"
 #include "../stdexec/__detail/__meta.hpp"
 #include "../stdexec/__detail/__optional.hpp"
 #include "../stdexec/__detail/__variant.hpp"
+#include "../stdexec/execution.hpp"
 
 #include "any_sender_of.hpp"
 #include "at_coroutine_exit.hpp"
@@ -34,7 +34,7 @@ STDEXEC_PRAGMA_IGNORE_GNU("-Wundefined-inline")
 
 namespace exec {
   namespace __task {
-    using namespace stdexec;
+    using namespace STDEXEC;
 
     // The required set_value_t() scheduler-sender completion signature is added in
     // any_receiver_ref::any_sender::any_scheduler.
@@ -87,7 +87,7 @@ namespace exec {
       static constexpr bool __with_scheduler = _SchedulerAffinity == __scheduler_affinity::__sticky;
 
       STDEXEC_ATTRIBUTE(no_unique_address)
-      __if_c<__with_scheduler, __any_scheduler, __ignore> __scheduler_{stdexec::inline_scheduler{}};
+      __if_c<__with_scheduler, __any_scheduler, __ignore> __scheduler_{STDEXEC::inline_scheduler{}};
       inplace_stop_token __stop_token_;
 
      public:
@@ -281,12 +281,12 @@ namespace exec {
     template <class _Sch>
     struct __just_void {
       using sender_concept = sender_t;
-      using completion_signatures = stdexec::completion_signatures<set_value_t()>;
+      using completion_signatures = STDEXEC::completion_signatures<set_value_t()>;
 
       template <class _Rcvr>
       [[nodiscard]]
       static constexpr auto connect(_Rcvr __rcvr) noexcept {
-        return stdexec::connect(just(), static_cast<_Rcvr&&>(__rcvr));
+        return STDEXEC::connect(just(), static_cast<_Rcvr&&>(__rcvr));
       }
 
       [[nodiscard]]
@@ -336,15 +336,15 @@ namespace exec {
 
      private:
       using __scheduler_t =
-        __query_result_or_t<get_scheduler_t, _Context, stdexec::inline_scheduler>;
+        __query_result_or_t<get_scheduler_t, _Context, STDEXEC::inline_scheduler>;
 
       struct __final_awaitable {
         static constexpr auto await_ready() noexcept -> bool {
           return false;
         }
 
-        static auto await_suspend(__coro::coroutine_handle<__promise> __h) noexcept
-          -> __coro::coroutine_handle<> {
+        static auto await_suspend(__std::coroutine_handle<__promise> __h) noexcept
+          -> __std::coroutine_handle<> {
           return __h.promise().continuation().handle();
         }
 
@@ -361,10 +361,10 @@ namespace exec {
         using __id = __promise;
 
         auto get_return_object() noexcept -> basic_task {
-          return basic_task(__coro::coroutine_handle<__promise>::from_promise(*this));
+          return basic_task(__std::coroutine_handle<__promise>::from_promise(*this));
         }
 
-        auto initial_suspend() noexcept -> __coro::suspend_always {
+        auto initial_suspend() noexcept -> __std::suspend_always {
           return {};
         }
 
@@ -392,13 +392,11 @@ namespace exec {
         template <sender _Awaitable>
           requires __scheduler_provider<_Context>
         auto await_transform(_Awaitable&& __awaitable) noexcept -> decltype(auto) {
-          if constexpr (__completes_where_it_starts<
-                          set_value_t,
-                          env_of_t<_Awaitable>,
-                          __promise_context_t&>) {
-            return stdexec::as_awaitable(static_cast<_Awaitable&&>(__awaitable), *this);
+          if constexpr (
+            __completes_where_it_starts<set_value_t, env_of_t<_Awaitable>, __promise_context_t&>) {
+            return STDEXEC::as_awaitable(static_cast<_Awaitable&&>(__awaitable), *this);
           } else {
-            return stdexec::as_awaitable(
+            return STDEXEC::as_awaitable(
               continues_on(static_cast<_Awaitable&&>(__awaitable), get_scheduler(*__context_)),
               *this);
           }
@@ -415,11 +413,11 @@ namespace exec {
             // Insert the cleanup action into the head of the continuation chain by making
             // direct calls to the cleanup task's awaiter member functions. See type
             // __at_coro_exit::__task in at_coroutine_exit.hpp:
-            __cleanup_task.await_suspend(__coro::coroutine_handle<__promise>::from_promise(*this));
+            __cleanup_task.await_suspend(__std::coroutine_handle<__promise>::from_promise(*this));
             (void) __cleanup_task.await_resume();
           }
           __context_->set_scheduler(__box.__sched_);
-          return stdexec::as_awaitable(schedule(__box.__sched_), *this);
+          return STDEXEC::as_awaitable(schedule(__box.__sched_), *this);
         }
 #endif
 
@@ -444,7 +442,7 @@ namespace exec {
 
       template <class _ParentPromise = void>
       struct __task_awaitable {
-        __coro::coroutine_handle<__promise> __coro_;
+        __std::coroutine_handle<__promise> __coro_;
         __optional<awaiter_context_t<__promise, _ParentPromise>> __context_{};
 
         ~__task_awaitable() {
@@ -457,8 +455,8 @@ namespace exec {
         }
 
         template <class _ParentPromise2>
-        auto await_suspend(__coro::coroutine_handle<_ParentPromise2> __parent) noexcept
-          -> __coro::coroutine_handle<> {
+        auto await_suspend(__std::coroutine_handle<_ParentPromise2> __parent) noexcept
+          -> __std::coroutine_handle<> {
           static_assert(__one_of<_ParentPromise, _ParentPromise2, void>);
           __coro_.promise().__context_.emplace(__parent.promise());
           __context_.emplace(*__coro_.promise().__context_, __parent.promise());
@@ -483,7 +481,7 @@ namespace exec {
      public:
       // Make this task awaitable within a particular context:
       template <class _ParentPromise>
-      // requires constructible_from<
+      // requires __std::constructible_from<
       //   awaiter_context_t<__promise, _ParentPromise>,
       //   __promise_context_t&,
       //   _ParentPromise&
@@ -499,11 +497,11 @@ namespace exec {
         return __task_awaitable<>{std::exchange(__coro_, {})};
       }
 
-      explicit basic_task(__coro::coroutine_handle<promise_type> __coro) noexcept
+      explicit basic_task(__std::coroutine_handle<promise_type> __coro) noexcept
         : __coro_(__coro) {
       }
 
-      __coro::coroutine_handle<promise_type> __coro_;
+      __std::coroutine_handle<promise_type> __coro_;
     };
   } // namespace __task
 
@@ -524,9 +522,9 @@ namespace exec {
   inline constexpr __task::__reschedule_coroutine_on reschedule_coroutine_on{};
 } // namespace exec
 
-namespace stdexec {
+namespace STDEXEC {
   template <class _Ty, class _Context>
   inline constexpr bool enable_sender<exec::basic_task<_Ty, _Context>> = true;
-} // namespace stdexec
+} // namespace STDEXEC
 
 STDEXEC_PRAGMA_POP()

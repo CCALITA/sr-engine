@@ -16,10 +16,10 @@
  */
 #pragma once
 
-#include "stdexec/execution.hpp"
 #include "stdexec/__detail/__config.hpp"
 #include "stdexec/__detail/__intrusive_queue.hpp"
 #include "stdexec/__detail/__meta.hpp"
+#include "stdexec/execution.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -80,7 +80,7 @@ namespace exec_old {
     template <class... Args>
     struct __bulk_non_throwing {
       using __t = stdexec::__decayed_tuple<Args...>;
-      static constexpr bool __v = noexcept(__t(std::declval<Args>()...));
+      static constexpr bool value = noexcept(__t(std::declval<Args>()...));
     };
 #endif
 
@@ -91,7 +91,7 @@ namespace exec_old {
       stdexec::__nothrow_callable<Fun, Shape, Args&...> &&
     // and emplacing a tuple doesn't throw
 #if STDEXEC_MSVC()
-      __bulk_non_throwing<Args...>::__v
+      __bulk_non_throwing<Args...>::value
 #else
       noexcept(stdexec::__decayed_tuple<Args...>(std::declval<Args>()...))
 #endif
@@ -169,18 +169,12 @@ namespace exec_old {
         using completion_signatures =
           stdexec::completion_signatures<stdexec::set_value_t(), stdexec::set_stopped_t()>;
 
-       private:
-        template <typename Receiver>
-        auto make_operation_(Receiver r) const -> operation<stdexec::__id<Receiver>> {
+        template <stdexec::receiver Receiver>
+        auto connect(Receiver r) const -> operation<stdexec::__id<Receiver>> {
           return operation<stdexec::__id<Receiver>>{pool_, static_cast<Receiver&&>(r)};
         }
 
-        template <stdexec::receiver Receiver>
-        friend auto tag_invoke(stdexec::connect_t, sender s, Receiver r)
-          -> operation<stdexec::__id<Receiver>> {
-          return s.make_operation_(static_cast<Receiver&&>(r));
-        }
-
+       private:
         struct env {
           static_thread_pool& pool_;
 
@@ -450,12 +444,12 @@ namespace exec_old {
 
     template <class Sender, class Env>
     using with_error_invoke_t = stdexec::__if_c<
-      stdexec::__v<stdexec::__value_types_of_t<
+      stdexec::__value_types_of_t<
         Sender,
         Env,
         stdexec::__mbind_front_q<bulk_non_throwing, Fun, Shape>,
         stdexec::__q<stdexec::__mand>
-      >>,
+      >::value,
       stdexec::completion_signatures<>,
       stdexec::__eptr_completion
     >;
@@ -481,7 +475,7 @@ namespace exec_old {
         Receiver,
         completion_signatures<Self, stdexec::env_of_t<Receiver>>
       >
-    friend auto tag_invoke(stdexec::connect_t, Self&& self, Receiver rcvr)
+    STDEXEC_EXPLICIT_THIS_BEGIN(auto connect)(this Self&& self, Receiver rcvr)
       noexcept(stdexec::__nothrow_constructible_from<
                bulk_op_state_t<Self, Receiver>,
                static_thread_pool&,
@@ -497,6 +491,7 @@ namespace exec_old {
         static_cast<Self&&>(self).sndr_,
         static_cast<Receiver&&>(rcvr)};
     }
+    STDEXEC_EXPLICIT_THIS_END(connect)
 
     template <stdexec::__decays_to<bulk_sender> Self, class Env>
     STDEXEC_EXPLICIT_THIS_BEGIN(auto get_completion_signatures)(this Self&&, Env&&)
@@ -592,7 +587,7 @@ namespace exec_old {
 
     [[nodiscard]]
     auto num_agents_required() const -> std::uint32_t {
-      return std::min(shape_, static_cast<Shape>(pool_.available_parallelism()));
+      return (std::min) (shape_, static_cast<Shape>(pool_.available_parallelism()));
     }
 
     template <class F>
@@ -670,12 +665,12 @@ namespace exec_old {
     using CvrefSender = stdexec::__cvref_t<CvrefSenderId>;
     using Receiver = stdexec::__t<ReceiverId>;
 
-    static constexpr bool may_throw = !stdexec::__v<stdexec::__value_types_of_t<
+    static constexpr bool may_throw = !stdexec::__value_types_of_t<
       CvrefSender,
       stdexec::env_of_t<Receiver>,
       stdexec::__mbind_front_q<bulk_non_throwing, Fun, Shape>,
       stdexec::__q<stdexec::__mand>
-    >>;
+    >::value;
 
     using bulk_rcvr = bulk_receiver<CvrefSenderId, ReceiverId, Shape, Fun, may_throw>;
     using shared_state = bulk_shared_state<CvrefSenderId, ReceiverId, Shape, Fun, may_throw>;

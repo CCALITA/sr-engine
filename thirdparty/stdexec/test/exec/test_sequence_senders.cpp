@@ -19,7 +19,7 @@
 
 #include <catch2/catch.hpp>
 
-using namespace stdexec;
+using namespace STDEXEC;
 using namespace exec;
 
 namespace {
@@ -35,11 +35,11 @@ namespace {
 
   template <__completion_signature... _Sigs>
   struct some_sender_of {
-    using sender_concept = stdexec::sender_t;
-    using completion_signatures = stdexec::completion_signatures<_Sigs...>;
+    using sender_concept = STDEXEC::sender_t;
+    using completion_signatures = STDEXEC::completion_signatures<_Sigs...>;
 
     template <class R>
-    friend auto tag_invoke(connect_t, some_sender_of, R&&) -> nop_operation {
+    auto connect(R&&) const -> nop_operation {
       return {};
     }
   };
@@ -48,12 +48,12 @@ namespace {
     STATIC_REQUIRE(sender<some_sender_of<set_value_t()>>);
     STATIC_REQUIRE(sender_in<some_sender_of<set_value_t()>, env<>>);
     STATIC_REQUIRE(
-      same_as<
+      std::same_as<
         completion_signatures_of_t<some_sender_of<set_value_t()>>,
         completion_signatures<set_value_t()>
       >);
     STATIC_REQUIRE(
-      same_as<
+      std::same_as<
         completion_signatures_of_t<some_sender_of<set_value_t(int)>>,
         completion_signatures<set_value_t(int)>
       >);
@@ -61,7 +61,7 @@ namespace {
 
   template <__completion_signature... _Sigs>
   struct test_receiver {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
 
     template <class... _Args>
       requires __one_of<set_value_t(_Args...), _Sigs...>
@@ -98,10 +98,10 @@ namespace {
 
   template <__completion_signature... _Sigs>
   struct next_receiver {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
 
     template <sender_to<test_receiver<_Sigs...>> _Item>
-    friend auto tag_invoke(set_next_t, next_receiver&, _Item&& __item) noexcept -> _Item {
+    auto set_next(_Item&& __item) & noexcept -> _Item {
       return __item;
     }
 
@@ -129,11 +129,11 @@ namespace {
   template <__completion_signature... _Sigs>
   struct some_sequence_sender_of {
     using sender_concept = sequence_sender_t;
-    using completion_signatures = stdexec::completion_signatures<set_value_t()>;
+    using completion_signatures = STDEXEC::completion_signatures<set_value_t()>;
     using item_types = exec::item_types<some_sender_of<_Sigs...>>;
 
     template <receiver R>
-    friend auto tag_invoke(subscribe_t, some_sequence_sender_of, R&&) -> nop_operation {
+    auto subscribe(R&&) const -> nop_operation {
       return {};
     }
   };

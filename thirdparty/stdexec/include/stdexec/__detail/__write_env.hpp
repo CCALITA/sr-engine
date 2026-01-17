@@ -24,7 +24,7 @@
 #include "__sender_adaptor_closure.hpp"
 #include "__utility.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   //////////////////////////////////////////////////////////////////////////////////////////////////
   // __write adaptor
   namespace __write {
@@ -48,16 +48,16 @@ namespace stdexec {
       };
 
       static constexpr auto get_env = [](__ignore, const auto& __state, const auto& __rcvr) noexcept
-        -> decltype(__env::__join(__state, stdexec::get_env(__rcvr))) {
-        return __env::__join(__state, stdexec::get_env(__rcvr));
+        -> decltype(__env::__join(__state, STDEXEC::get_env(__rcvr))) {
+        return __env::__join(__state, STDEXEC::get_env(__rcvr));
       };
 
       static constexpr auto get_completion_signatures =
-          []<class _Self, class... _Env>(_Self &&, _Env &&...) noexcept
-          -> __completion_signatures_of_t<
-              __child_of<_Self>,
-              __meval<__join_env_t, const __decay_t<__data_of<_Self>> &,
-                      _Env>...> {
+        []<class _Self, class... _Env>(_Self&&, _Env&&...) noexcept
+        -> __completion_signatures_of_t<
+          __child_of<_Self>,
+          __meval<__join_env_t, const __decay_t<__data_of<_Self>>&, _Env>...
+        > {
         static_assert(sender_expr_for<_Self, write_env_t>);
         return {};
       };
@@ -69,4 +69,4 @@ namespace stdexec {
 
   template <>
   struct __sexpr_impl<write_env_t> : __write::__write_env_impl { };
-} // namespace stdexec
+} // namespace STDEXEC

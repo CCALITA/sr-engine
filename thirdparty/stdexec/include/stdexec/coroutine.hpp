@@ -19,7 +19,7 @@
 #include "__detail/__config.hpp"
 
 #if STDEXEC_MSVC() && STDEXEC_MSVC_VERSION <= 19'39
-namespace stdexec {
+namespace STDEXEC {
   // MSVCBUG https://developercommunity.visualstudio.com/t/destroy-coroutine-from-final_suspend-r/10096047
 
   // Prior to Visual Studio 17.9 (Feb, 2024), aka MSVC 19.39, MSVC incorrectly allocates the return
@@ -38,7 +38,7 @@ namespace stdexec {
     struct __task {
       struct promise_type {
         __task get_return_object() noexcept {
-          return {__coro::coroutine_handle<promise_type>::from_promise(*this)};
+          return {__std::coroutine_handle<promise_type>::from_promise(*this)};
         }
 
         static std::suspend_never initial_suspend() noexcept {
@@ -59,7 +59,7 @@ namespace stdexec {
         }
       };
 
-      __coro::coroutine_handle<> __coro_;
+      __std::coroutine_handle<> __coro_;
     };
 
     struct __continue_t {
@@ -67,19 +67,19 @@ namespace stdexec {
         return false;
       }
 
-      __coro::coroutine_handle<> await_suspend(__coro::coroutine_handle<>) noexcept {
+      __std::coroutine_handle<> await_suspend(__std::coroutine_handle<>) noexcept {
         return __continue_;
       }
 
       static void await_resume() noexcept {
       }
 
-      __coro::coroutine_handle<> __continue_;
+      __std::coroutine_handle<> __continue_;
     };
 
     struct __context {
-      __coro::coroutine_handle<> __destroy_;
-      __coro::coroutine_handle<> __continue_;
+      __std::coroutine_handle<> __destroy_;
+      __std::coroutine_handle<> __continue_;
     };
 
     inline __task __co_impl(__context& __c) {
@@ -91,7 +91,7 @@ namespace stdexec {
 
     struct __context_and_coro {
       __context_and_coro() {
-        __context_.__continue_ = __coro::noop_coroutine();
+        __context_.__continue_ = __std::noop_coroutine();
         __coro_ = __co_impl(__context_).__coro_;
       }
 
@@ -100,21 +100,21 @@ namespace stdexec {
       }
 
       __context __context_;
-      __coro::coroutine_handle<> __coro_;
+      __std::coroutine_handle<> __coro_;
     };
 
-    inline __coro::coroutine_handle<>
-      __impl(__coro::coroutine_handle<> __destroy, __coro::coroutine_handle<> __continue) {
+    inline __std::coroutine_handle<>
+      __impl(__std::coroutine_handle<> __destroy, __std::coroutine_handle<> __continue) {
       static thread_local __context_and_coro __c;
       __c.__context_.__destroy_ = __destroy;
       __c.__context_.__continue_ = __continue;
       return __c.__coro_;
     }
   } // namespace __destroy_and_continue_msvc
-} // namespace stdexec
+} // namespace STDEXEC
 
 #  define STDEXEC_DESTROY_AND_CONTINUE(__destroy, __continue)                                      \
-    (::stdexec::__destroy_and_continue_msvc::__impl(__destroy, __continue))
+    (::STDEXEC::__destroy_and_continue_msvc::__impl(__destroy, __continue))
 #else
 #  define STDEXEC_DESTROY_AND_CONTINUE(__destroy, __continue) (__destroy.destroy(), __continue)
 #endif

@@ -16,21 +16,20 @@
  */
 #pragma once
 
+#include "../../stdexec/__detail/__completion_signatures_of.hpp"
+#include "../../stdexec/__detail/__execution_fwd.hpp"
+#include "../../stdexec/__detail/__meta.hpp"
 #include "../../stdexec/concepts.hpp"
 #include "../../stdexec/execution.hpp"
-#include "../sequence_senders.hpp"
 
 #include "../__detail/__basic_sequence.hpp"
-#include "./transform_each.hpp"
-#include "./ignore_all_values.hpp"
-#include "stdexec/__detail/__execution_fwd.hpp"
-#include "stdexec/__detail/__meta.hpp"
-#include "stdexec/__detail/__senders_core.hpp"
-#include "stdexec/__detail/__transform_completion_signatures.hpp"
+#include "../sequence_senders.hpp"
+#include "ignore_all_values.hpp"
+#include "transform_each.hpp"
 
 namespace exec {
   namespace __merge {
-    using namespace stdexec;
+    using namespace STDEXEC;
 
     template <class _Receiver>
     struct __operation_base {
@@ -39,39 +38,39 @@ namespace exec {
 
     template <class _ReceiverId>
     struct __result_receiver {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       struct __t {
-        using receiver_concept = stdexec::receiver_t;
+        using receiver_concept = STDEXEC::receiver_t;
         using __id = __result_receiver;
 
         __operation_base<_Receiver>* __op_;
 
         void set_value() noexcept {
-          stdexec::set_value(static_cast<_Receiver&&>(__op_->__receiver_));
+          STDEXEC::set_value(static_cast<_Receiver&&>(__op_->__receiver_));
         }
 
         template <class _Error>
         void set_error(_Error&& __error) noexcept {
-          stdexec::set_error(
+          STDEXEC::set_error(
             static_cast<_Receiver&&>(__op_->__receiver_), static_cast<_Error&&>(__error));
         }
 
         void set_stopped() noexcept {
-          stdexec::set_stopped(static_cast<_Receiver&&>(__op_->__receiver_));
+          STDEXEC::set_stopped(static_cast<_Receiver&&>(__op_->__receiver_));
         }
 
         auto get_env() const noexcept -> env_of_t<_Receiver> {
-          return stdexec::get_env(__op_->__receiver_);
+          return STDEXEC::get_env(__op_->__receiver_);
         }
       };
     };
 
     template <class _ReceiverId>
     struct __merge_each_fn {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
-      template <stdexec::sender _Item>
+      template <STDEXEC::sender _Item>
       auto operator()(_Item&& __item, __operation_base<_Receiver>* __op) const
         noexcept(__nothrow_callable<set_next_t, _Receiver&, _Item>)
           -> next_sender_of_t<_Receiver, _Item> {
@@ -98,7 +97,7 @@ namespace exec {
 
     template <class _ReceiverId, class... _Sequences>
     struct __operation {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       using merge_each_fn_t = __combine::merge_each_fn_t<_ReceiverId>;
 
@@ -108,22 +107,22 @@ namespace exec {
       struct __t : __operation_base<_Receiver> {
         using __id = __operation;
 
-        connect_result_t<result_sender_t<_ReceiverId>, stdexec::__t<__result_receiver<_ReceiverId>>>
+        connect_result_t<result_sender_t<_ReceiverId>, STDEXEC::__t<__result_receiver<_ReceiverId>>>
           __op_result_;
 
         __t(_Receiver __rcvr, _Sequences... __sequences)
           : __operation_base<_Receiver>{static_cast<_Receiver&&>(__rcvr)}
-          , __op_result_{stdexec::connect(
-              stdexec::when_all(
+          , __op_result_{STDEXEC::connect(
+              STDEXEC::when_all(
                 exec::ignore_all_values(
                   exec::transform_each(
                     static_cast<_Sequences&&>(__sequences),
                     merge_each_fn_t({}, this)))...),
-              stdexec::__t<__result_receiver<_ReceiverId>>{this})} {
+              STDEXEC::__t<__result_receiver<_ReceiverId>>{this})} {
         }
 
         void start() & noexcept {
-          stdexec::start(__op_result_);
+          STDEXEC::start(__op_result_);
         }
       };
     };
@@ -152,11 +151,15 @@ namespace exec {
 
       struct _INVALID_ARGUMENTS_TO_MERGE_ { };
 
-      template <class _Self, class _Env>
-      using __error_t = __mexception<
-        _INVALID_ARGUMENTS_TO_MERGE_,
-        __children_of<_Self, __q<_WITH_SEQUENCES_>>,
-        _WITH_ENVIRONMENT_<_Env>
+      template <class _Self, class... _Env>
+      using __error_t = std::conditional_t<
+        sizeof...(_Env) == 0,
+        __dependent_sender_error<_Self>,
+        __mexception<
+          _INVALID_ARGUMENTS_TO_MERGE_,
+          __children_of<_Self, __q<_WITH_SEQUENCES_>>,
+          _WITH_ENVIRONMENT_<_Env>...
+        >
       >;
 
       template <class... _Env>
@@ -173,18 +176,24 @@ namespace exec {
       using __completions_t = __children_of<_Self, __completions_fn_t<_Env...>>;
 
       template <sender_expr_for<merge_t> _Self, class... _Env>
-      static auto get_completion_signatures(_Self&&, _Env&&...) noexcept {
-        return __minvoke<__mtry_catch<__q<__completions_t>, __q<__error_t>>, _Self, _Env...>();
+      static consteval auto get_completion_signatures() noexcept {
+        using __result_t =
+          __minvoke<__mtry_catch<__q<__completions_t>, __q<__error_t>>, _Self, _Env...>;
+        if constexpr (__ok<__result_t>) {
+          return __result_t();
+        } else {
+          return STDEXEC::__invalid_completion_signature(__result_t());
+        }
       }
 
       template <class... _Env>
       struct __items_fn_t {
 
         template <class... _Sequences>
-        using __f = stdexec::__mapply<
-          stdexec::__munique<stdexec::__q<exec::item_types>>,
-          stdexec::__minvoke<
-            stdexec::__mconcat<stdexec::__qq<exec::item_types>>,
+        using __f = STDEXEC::__mapply<
+          STDEXEC::__munique<STDEXEC::__q<exec::item_types>>,
+          STDEXEC::__minvoke<
+            STDEXEC::__mconcat<STDEXEC::__qq<exec::item_types>>,
             __item_types_of_t<_Sequences, _Env...>...
           >
         >;
@@ -194,15 +203,20 @@ namespace exec {
       using __items_t = __children_of<_Self, __items_fn_t<_Env...>>;
 
       template <sender_expr_for<merge_t> _Self, class... _Env>
-      static auto get_item_types(_Self&&, _Env&&...) noexcept {
-        return __minvoke<__mtry_catch<__q<__items_t>, __q<__error_t>>, _Self, _Env...>();
+      static consteval auto get_item_types() {
+        using __result_t = __minvoke<__mtry_catch<__q<__items_t>, __q<__error_t>>, _Self, _Env...>;
+        if constexpr (__ok<__result_t>) {
+          return __result_t();
+        } else {
+          return exec::__invalid_item_types(__result_t());
+        }
       }
 
       template <sender_expr_for<merge_t> _Self, receiver _Receiver>
       static auto subscribe(_Self&& __self, _Receiver __rcvr)
-        noexcept(__nothrow_callable<__sexpr_apply_t, _Self, __subscribe_fn<_Receiver>>)
-          -> __sexpr_apply_result_t<_Self, __subscribe_fn<_Receiver>> {
-        return __sexpr_apply(static_cast<_Self&&>(__self), __subscribe_fn<_Receiver>{__rcvr});
+        noexcept(__nothrow_applicable<__subscribe_fn<_Receiver>, _Self>)
+          -> __apply_result_t<__subscribe_fn<_Receiver>, _Self> {
+        return __apply(__subscribe_fn<_Receiver>{__rcvr}, static_cast<_Self&&>(__self));
       }
     };
   } // namespace __merge

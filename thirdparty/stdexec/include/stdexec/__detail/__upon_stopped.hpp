@@ -18,28 +18,28 @@
 #include "__execution_fwd.hpp"
 
 #include "__basic_sender.hpp"
+#include "__completion_signatures_of.hpp"
 #include "__diagnostics.hpp"
 #include "__meta.hpp"
-#include "__senders_core.hpp"
 #include "__sender_adaptor_closure.hpp"
-#include "__transform_completion_signatures.hpp"
 #include "__senders.hpp" // IWYU pragma: keep for __well_formed_sender
+#include "__transform_completion_signatures.hpp"
 
 // include these after __execution_fwd.hpp
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.upon_stopped]
   namespace __upon_stopped {
     inline constexpr __mstring __upon_stopped_context =
-      "In stdexec::upon_stopped(Sender, Function)..."_mstr;
+      "In STDEXEC::upon_stopped(Sender, Function)..."_mstr;
     using __on_not_callable = __callable_error<__upon_stopped_context>;
 
     template <class _Fun, class _CvrefSender, class... _Env>
     using __completion_signatures_t = transform_completion_signatures<
       __completion_signatures_of_t<_CvrefSender, _Env...>,
       __with_error_invoke_t<__on_not_callable, set_stopped_t, _Fun, _CvrefSender, _Env...>,
-      __sigs::__default_set_value,
-      __sigs::__default_set_error,
+      __cmplsigs::__default_set_value,
+      __cmplsigs::__default_set_error,
       __set_value_invoke_t<_Fun>
     >;
 
@@ -48,7 +48,8 @@ namespace stdexec {
       template <sender _Sender, __movable_value _Fun>
         requires __callable<_Fun>
       auto operator()(_Sender&& __sndr, _Fun __fun) const -> __well_formed_sender auto {
-        return __make_sexpr<upon_stopped_t>(static_cast<_Fun&&>(__fun), static_cast<_Sender&&>(__sndr));
+        return __make_sexpr<upon_stopped_t>(
+          static_cast<_Fun&&>(__fun), static_cast<_Sender&&>(__sndr));
       }
 
       template <__movable_value _Fun>
@@ -75,7 +76,7 @@ namespace stdexec {
           _Tag,
           _Args&&... __args) noexcept -> void {
         if constexpr (__same_as<_Tag, set_stopped_t>) {
-          stdexec::__set_value_invoke(
+          STDEXEC::__set_value_invoke(
             static_cast<_Receiver&&>(__rcvr),
             static_cast<_State&&>(__state),
             static_cast<_Args&&>(__args)...);
@@ -92,4 +93,4 @@ namespace stdexec {
   template <>
   struct __sexpr_impl<upon_stopped_t> : __upon_stopped::__upon_stopped_impl { };
 
-} // namespace stdexec
+} // namespace STDEXEC

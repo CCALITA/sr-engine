@@ -19,7 +19,7 @@
 
 #include <catch2/catch.hpp>
 
-using namespace stdexec;
+using namespace STDEXEC;
 using namespace exec;
 
 namespace {
@@ -30,22 +30,21 @@ namespace {
     using empty_t = decltype(empty_sequence());
     STATIC_REQUIRE(sequence_sender<empty_t, env<>>);
     STATIC_REQUIRE(
-      same_as<
+      std::same_as<
         __sequence_completion_signatures_of_t<empty_t, env<>>,
         completion_signatures<set_value_t()>
       >);
     STATIC_REQUIRE(
-      same_as<completion_signatures_of_t<empty_t>, completion_signatures<set_value_t()>>);
-    STATIC_REQUIRE(same_as<item_types_of_t<empty_t, env<>>, item_types<>>);
+      std::same_as<completion_signatures_of_t<empty_t>, completion_signatures<set_value_t()>>);
+    STATIC_REQUIRE(std::same_as<item_types_of_t<empty_t, env<>>, item_types<>>);
   }
 
   struct count_set_next_receiver_t {
-    using receiver_concept = stdexec::receiver_t;
+    using receiver_concept = STDEXEC::receiver_t;
     int& count_invocations_;
 
-    friend auto
-      tag_invoke(set_next_t, count_set_next_receiver_t& __self, auto /* item */) noexcept {
-      ++__self.count_invocations_;
+    auto set_next(auto /* item */) & noexcept {
+      ++count_invocations_;
       return just();
     }
 
@@ -62,7 +61,7 @@ namespace {
 
     int count{0};
     auto op = subscribe(empty_sequence(), count_set_next_receiver_t{count});
-    stdexec::start(op);
+    STDEXEC::start(op);
     CHECK(count == 0);
   }
 } // namespace

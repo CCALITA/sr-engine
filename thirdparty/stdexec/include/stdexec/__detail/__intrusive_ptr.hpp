@@ -18,8 +18,8 @@
 #include "__concepts.hpp"
 
 #include "__atomic.hpp"
-#include <new> // IWYU pragma: keep for ::new
 #include <cstddef>
+#include <new> // IWYU pragma: keep for ::new
 #include <type_traits>
 #include <utility>
 
@@ -27,7 +27,7 @@
 #  include <sanitizer/tsan_interface.h>
 #endif
 
-namespace stdexec {
+namespace STDEXEC {
   namespace __ptr {
     template <std::size_t _ReservedBits>
     struct __count_and_bits {
@@ -313,7 +313,7 @@ namespace stdexec {
     template <class _Ty, std::size_t _ReservedBits>
     struct __make_intrusive_t {
       template <class... _Us>
-        requires constructible_from<_Ty, _Us...>
+        requires __std::constructible_from<_Ty, _Us...>
       auto operator()(_Us&&... __us) const -> __intrusive_ptr<_Ty, _ReservedBits> {
         using _UncvTy = std::remove_cv_t<_Ty>;
         return __intrusive_ptr<_Ty, _ReservedBits>{
@@ -327,4 +327,4 @@ namespace stdexec {
   template <class _Ty, std::size_t _ReservedBits = 0ul>
   inline constexpr __ptr::__make_intrusive_t<_Ty, _ReservedBits> __make_intrusive{};
 
-} // namespace stdexec
+} // namespace STDEXEC

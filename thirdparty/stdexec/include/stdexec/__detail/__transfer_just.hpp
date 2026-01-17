@@ -29,7 +29,7 @@
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wmissing-braces")
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.transfer_just]
   namespace __transfer_just {
@@ -43,7 +43,7 @@ namespace stdexec {
 
     inline auto __transform_sender_fn() {
       return []<class _Data>(__ignore, _Data&& __data) {
-        return stdexec::__apply(__make_transform_fn(), static_cast<_Data&&>(__data));
+        return STDEXEC::__apply(__make_transform_fn(), static_cast<_Data&&>(__data));
       };
     }
 
@@ -51,8 +51,8 @@ namespace stdexec {
       template <scheduler _Scheduler, __movable_value... _Values>
       auto
         operator()(_Scheduler&& __sched, _Values&&... __vals) const -> __well_formed_sender auto {
-          return __make_sexpr<transfer_just_t>(
-            __tuple{static_cast<_Scheduler&&>(__sched), static_cast<_Values&&>(__vals)...});
+        return __make_sexpr<transfer_just_t>(
+          __tuple{static_cast<_Scheduler&&>(__sched), static_cast<_Values&&>(__vals)...});
       }
 
       template <class _Sender, class _Env>
@@ -60,7 +60,7 @@ namespace stdexec {
         if constexpr (!__decay_copyable<_Sender>) {
           return __mexception<_SENDER_TYPE_IS_NOT_COPYABLE_, _WITH_SENDER_<_Sender>>();
         } else {
-          return __sexpr_apply(static_cast<_Sender&&>(__sndr), __transform_sender_fn());
+          return __apply(__transform_sender_fn(), static_cast<_Sender&&>(__sndr));
         }
       }
     };
@@ -74,7 +74,7 @@ namespace stdexec {
 
     struct __transfer_just_impl : __sexpr_defaults {
       static constexpr auto get_attrs = []<class _Data>(const _Data& __data) noexcept {
-        return stdexec::__apply(__make_attrs_fn(), __data);
+        return STDEXEC::__apply(__make_attrs_fn(), __data);
       };
 
       static constexpr auto get_completion_signatures =
@@ -89,6 +89,6 @@ namespace stdexec {
 
   template <>
   struct __sexpr_impl<transfer_just_t> : __transfer_just::__transfer_just_impl { };
-} // namespace stdexec
+} // namespace STDEXEC
 
 STDEXEC_PRAGMA_POP()

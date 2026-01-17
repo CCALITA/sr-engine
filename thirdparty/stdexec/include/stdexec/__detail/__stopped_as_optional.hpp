@@ -20,19 +20,19 @@
 // include these after __execution_fwd.hpp
 #include "__basic_sender.hpp"
 #include "__completion_signatures.hpp"
+#include "__completion_signatures_of.hpp"
 #include "__concepts.hpp"
 #include "__diagnostics.hpp"
+#include "__receivers.hpp"
 #include "__sender_adaptor_closure.hpp"
 #include "__senders.hpp"
-#include "__receivers.hpp"
-#include "__senders_core.hpp"
 #include "__transform_completion_signatures.hpp"
 #include "__type_traits.hpp"
 
 #include <exception>
 #include <optional>
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.stopped_as_optional]
   namespace __sao {
@@ -101,18 +101,18 @@ namespace stdexec {
           _Args&&... __args) noexcept -> void {
         if constexpr (__same_as<_Tag, set_value_t>) {
           STDEXEC_TRY {
-            static_assert(constructible_from<__t<_State>, _Args...>);
-            stdexec::set_value(
+            static_assert(__std::constructible_from<__t<_State>, _Args...>);
+            STDEXEC::set_value(
               static_cast<_Receiver&&>(__rcvr),
               std::optional<__t<_State>>{static_cast<_Args&&>(__args)...});
           }
           STDEXEC_CATCH_ALL {
-            stdexec::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
+            STDEXEC::set_error(static_cast<_Receiver&&>(__rcvr), std::current_exception());
           }
         } else if constexpr (__same_as<_Tag, set_error_t>) {
-          stdexec::set_error(static_cast<_Receiver&&>(__rcvr), static_cast<_Args&&>(__args)...);
+          STDEXEC::set_error(static_cast<_Receiver&&>(__rcvr), static_cast<_Args&&>(__args)...);
         } else {
-          stdexec::set_value(
+          STDEXEC::set_value(
             static_cast<_Receiver&&>(__rcvr), std::optional<__t<_State>>{std::nullopt});
         }
       };
@@ -124,4 +124,4 @@ namespace stdexec {
 
   template <>
   struct __sexpr_impl<stopped_as_optional_t> : __sao::__stopped_as_optional_impl { };
-} // namespace stdexec
+} // namespace STDEXEC

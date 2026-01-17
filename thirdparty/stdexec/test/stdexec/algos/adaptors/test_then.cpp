@@ -16,16 +16,17 @@
 
 #include <catch2/catch.hpp>
 #include <stdexec/execution.hpp>
-#include <test_common/schedulers.hpp>
 #include <test_common/receivers.hpp>
+#include <test_common/schedulers.hpp>
 #include <test_common/senders.hpp>
 #include <test_common/type_helpers.hpp>
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 // Check that the `then` algorithm is correctly forwarding the __is_scheduler_affine query
 static_assert(ex::__is_scheduler_affine<decltype(ex::just() | ex::then([] { }))>);
-static_assert(ex::__completes_inline<ex::set_value_t, decltype(ex::get_env(ex::just() | ex::then([] { })))>);
+static_assert(
+  ex::__completes_inline<ex::set_value_t, decltype(ex::get_env(ex::just() | ex::then([] { })))>);
 
 namespace {
   TEST_CASE("then returns a sender", "[adaptors][then]") {
@@ -75,13 +76,13 @@ namespace {
     wait_for_value(std::move(snd), 3.1415); // NOLINT(modernize-use-std-numbers)
   }
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   TEST_CASE("then can throw, and set_error will be called", "[adaptors][then]") {
     auto snd = ex::just(13) | ex::then([](int) -> int { throw std::logic_error{"err"}; });
     auto op = ex::connect(std::move(snd), expect_error_receiver{});
     ex::start(op);
   }
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   TEST_CASE("then can be used with just_error", "[adaptors][then]") {
     ex::sender auto snd = ex::just_error(std::string{"err"}) | ex::then([]() -> int { return 17; });
@@ -175,7 +176,7 @@ namespace {
   // Return a different sender when we invoke this custom defined then implementation
   struct then_test_domain {
     template <ex::sender_expr_for<ex::then_t> Sender, class... Env>
-    static auto transform_sender(stdexec::set_value_t, Sender&&, Env&&...) {
+    static auto transform_sender(STDEXEC::set_value_t, Sender&&, Env&&...) {
       return ex::just(std::string{"ciao"});
     }
   };

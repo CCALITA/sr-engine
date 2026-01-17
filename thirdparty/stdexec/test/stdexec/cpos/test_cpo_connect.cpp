@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include <catch2/catch.hpp>
-#include <stdexec/execution.hpp>
 #include "test_common/receivers.hpp"
 #include "test_common/type_helpers.hpp"
+#include <catch2/catch.hpp>
+#include <stdexec/execution.hpp>
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wunused-function")
@@ -38,26 +38,28 @@ namespace {
   };
 
   struct my_sender {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<ex::set_value_t(int)>;
 
     int value_{0};
 
     template <class R>
-    friend auto tag_invoke(ex::connect_t, my_sender s, R&& r) -> op_state<R> {
-      return {{}, s.value_, static_cast<R&&>(r)};
+    [[nodiscard]]
+    auto connect(R r) const -> op_state<R> {
+      return {{}, value_, std::move(r)};
     }
   };
 
   struct my_sender_unconstrained {
-    using sender_concept = stdexec::sender_t;
+    using sender_concept = STDEXEC::sender_t;
     using completion_signatures = ex::completion_signatures<ex::set_value_t(int)>;
 
     int value_{0};
 
     template <class R> // accept any type here
-    friend auto tag_invoke(ex::connect_t, my_sender_unconstrained s, R&& r) -> op_state<R> {
-      return {{}, s.value_, static_cast<R&&>(r)};
+    [[nodiscard]]
+    auto connect(R r) const -> op_state<R> {
+      return {{}, value_, std::move(r)};
     }
   };
 

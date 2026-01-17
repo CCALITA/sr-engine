@@ -18,28 +18,28 @@
 #include "__execution_fwd.hpp"
 
 #include "__awaitable.hpp"
-#include "__completion_signatures.hpp"
 #include "__concepts.hpp"
 #include "__config.hpp"
 #include "__env.hpp"
+#include "__get_completion_signatures.hpp"
 #include "__meta.hpp"
 #include "__receivers.hpp"
 
 #include <exception>
 #include <utility>
 
-namespace stdexec {
-#if !STDEXEC_STD_NO_COROUTINES()
+namespace STDEXEC {
+#if !STDEXEC_NO_STD_COROUTINES()
   /////////////////////////////////////////////////////////////////////////////
   // __connect_awaitable_
   namespace __connect_awaitable_ {
     struct __promise_base {
-      auto initial_suspend() noexcept -> __coro::suspend_always {
+      auto initial_suspend() noexcept -> __std::suspend_always {
         return {};
       }
 
       [[noreturn]]
-      auto final_suspend() noexcept -> __coro::suspend_always {
+      auto final_suspend() noexcept -> __std::suspend_always {
         std::terminate();
       }
 
@@ -55,9 +55,9 @@ namespace stdexec {
     };
 
     struct __operation_base {
-      __coro::coroutine_handle<> __coro_;
+      __std::coroutine_handle<> __coro_;
 
-      explicit __operation_base(__coro::coroutine_handle<> __hcoro) noexcept
+      explicit __operation_base(__std::coroutine_handle<> __hcoro) noexcept
         : __coro_(__hcoro) {
       }
 
@@ -92,18 +92,18 @@ namespace stdexec {
     template <class _ReceiverId>
     struct __operation {
       struct __t : __operation_base {
-        using promise_type = stdexec::__t<__promise<_ReceiverId>>;
+        using promise_type = STDEXEC::__t<__promise<_ReceiverId>>;
         using __operation_base::__operation_base;
       };
     };
 
     template <class _ReceiverId>
     struct __promise {
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       struct __t
         : __promise_base
-        , __env::__with_await_transform<__t> {
+        , __detail::__with_await_transform<__t> {
         using __id = __promise;
 
 #  if STDEXEC_EDG()
@@ -116,22 +116,22 @@ namespace stdexec {
         }
 #  endif
 
-        auto unhandled_stopped() noexcept -> __coro::coroutine_handle<> {
-          stdexec::set_stopped(static_cast<_Receiver&&>(__rcvr_));
+        auto unhandled_stopped() noexcept -> __std::coroutine_handle<> {
+          STDEXEC::set_stopped(static_cast<_Receiver&&>(__rcvr_));
           // Returning noop_coroutine here causes the __connect_awaitable
           // coroutine to never resume past the point where it co_await's
           // the awaitable.
-          return __coro::noop_coroutine();
+          return __std::noop_coroutine();
         }
 
-        auto get_return_object() noexcept -> stdexec::__t<__operation<_ReceiverId>> {
-          return stdexec::__t<__operation<_ReceiverId>>{
-            __coro::coroutine_handle<__t>::from_promise(*this)};
+        auto get_return_object() noexcept -> STDEXEC::__t<__operation<_ReceiverId>> {
+          return STDEXEC::__t<__operation<_ReceiverId>>{
+            __std::coroutine_handle<__t>::from_promise(*this)};
         }
 
         // Pass through the get_env receiver query
         auto get_env() const noexcept -> env_of_t<_Receiver> {
-          return stdexec::get_env(__rcvr_);
+          return STDEXEC::get_env(__rcvr_);
         }
 
         _Receiver& __rcvr_;
@@ -159,7 +159,7 @@ namespace stdexec {
             return false;
           }
 
-          void await_suspend(__coro::coroutine_handle<>) noexcept {
+          void await_suspend(__std::coroutine_handle<>) noexcept {
             __fn_();
           }
 
@@ -180,7 +180,7 @@ namespace stdexec {
         using __result_t = __await_result_t<_Awaitable, __promise_t<_Receiver>>;
         std::exception_ptr __eptr;
         STDEXEC_TRY {
-          if constexpr (same_as<__result_t, void>)
+          if constexpr (__std::same_as<__result_t, void>)
             co_await (
               co_await static_cast<_Awaitable&&>(__awaitable),
               __co_call(set_value, static_cast<_Receiver&&>(__rcvr)));
@@ -221,4 +221,4 @@ namespace stdexec {
   struct __connect_awaitable_t { };
 #endif
   inline constexpr __connect_awaitable_t __connect_awaitable{};
-} // namespace stdexec
+} // namespace STDEXEC

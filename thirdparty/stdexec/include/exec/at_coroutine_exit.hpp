@@ -26,31 +26,31 @@
 
 namespace exec {
   namespace __at_coro_exit {
-    using namespace stdexec;
+    using namespace STDEXEC;
 
-    using __any_scheduler_t = any_receiver_ref<completion_signatures<
-      set_error_t(std::exception_ptr),
-      set_stopped_t()>>::any_sender<>::any_scheduler<>;
+    using __any_scheduler_t = any_receiver_ref<
+      completion_signatures<set_error_t(std::exception_ptr), set_stopped_t()>
+    >::any_sender<>::any_scheduler<>;
 
     struct __die_on_stop_t {
       template <class _Receiver>
       struct __receiver_id {
         struct __t {
-          using receiver_concept = stdexec::receiver_t;
+          using receiver_concept = STDEXEC::receiver_t;
           using __id = __receiver_id;
           _Receiver __receiver_;
 
           template <class... _Args>
             requires __callable<set_value_t, _Receiver, _Args...>
           void set_value(_Args&&... __args) noexcept {
-            stdexec::set_value(
+            STDEXEC::set_value(
               static_cast<_Receiver&&>(__receiver_), static_cast<_Args&&>(__args)...);
           }
 
           template <class _Error>
             requires __callable<set_error_t, _Receiver, _Error>
           void set_error(_Error&& __err) noexcept {
-            stdexec::set_error(static_cast<_Receiver&&>(__receiver_), static_cast<_Error&&>(__err));
+            STDEXEC::set_error(static_cast<_Receiver&&>(__receiver_), static_cast<_Error&&>(__err));
           }
 
           [[noreturn]]
@@ -59,7 +59,7 @@ namespace exec {
           }
 
           auto get_env() const noexcept -> env_of_t<_Receiver> {
-            return stdexec::get_env(__receiver_);
+            return STDEXEC::get_env(__receiver_);
           }
         };
       };
@@ -77,7 +77,7 @@ namespace exec {
 
         struct __t {
           using __id = __sender_id;
-          using sender_concept = stdexec::sender_t;
+          using sender_concept = STDEXEC::sender_t;
 
           _Sender __sender_;
 
@@ -85,7 +85,7 @@ namespace exec {
             requires sender_to<_Sender, __receiver<_Receiver>>
           auto connect(_Receiver __rcvr) && noexcept
             -> connect_result_t<_Sender, __receiver<_Receiver>> {
-            return stdexec::connect(
+            return STDEXEC::connect(
               static_cast<_Sender&&>(__sender_),
               __receiver<_Receiver>{static_cast<_Receiver&&>(__rcvr)});
           }
@@ -98,7 +98,7 @@ namespace exec {
           STDEXEC_EXPLICIT_THIS_END(get_completion_signatures)
 
           auto get_env() const noexcept -> env_of_t<_Sender> {
-            return stdexec::get_env(__sender_);
+            return STDEXEC::get_env(__sender_);
           }
         };
       };
@@ -121,7 +121,7 @@ namespace exec {
 
     template <class _Promise>
     concept __has_continuation = requires(_Promise& __promise, __coroutine_handle<> __c) {
-      { __promise.continuation() } -> convertible_to<__coroutine_handle<>>;
+      { __promise.continuation() } -> __std::convertible_to<__coroutine_handle<>>;
       { __promise.set_continuation(__c) };
     };
 
@@ -132,11 +132,11 @@ namespace exec {
       using promise_type = __promise;
 
 #if STDEXEC_EDG()
-      __task(__coro::coroutine_handle<__promise> __coro) noexcept
+      __task(__std::coroutine_handle<__promise> __coro) noexcept
         : __coro_(__coro) {
       }
 #else
-      explicit __task(__coro::coroutine_handle<__promise> __coro) noexcept
+      explicit __task(__std::coroutine_handle<__promise> __coro) noexcept
         : __coro_(__coro) {
       }
 #endif
@@ -151,7 +151,7 @@ namespace exec {
       }
 
       template <__has_continuation _Promise>
-      auto await_suspend(__coro::coroutine_handle<_Promise> __parent) noexcept -> bool {
+      auto await_suspend(__std::coroutine_handle<_Promise> __parent) noexcept -> bool {
         __coro_.promise().__scheduler_ = get_scheduler(get_env(__parent.promise()));
         __coro_.promise().set_continuation(__parent.promise().continuation());
         __parent.promise().set_continuation(__coro_);
@@ -168,8 +168,8 @@ namespace exec {
           return false;
         }
 
-        static auto await_suspend(__coro::coroutine_handle<__promise> __h) noexcept
-          -> __coro::coroutine_handle<> {
+        static auto await_suspend(__std::coroutine_handle<__promise> __h) noexcept
+          -> __std::coroutine_handle<> {
           __promise& __p = __h.promise();
           auto __coro = __p.__is_unhandled_stopped_ ? __p.continuation().unhandled_stopped()
                                                     : __p.continuation().handle();
@@ -202,7 +202,7 @@ namespace exec {
         }
 #endif
 
-        auto initial_suspend() noexcept -> __coro::suspend_always {
+        auto initial_suspend() noexcept -> __std::suspend_always {
           return {};
         }
 
@@ -218,13 +218,13 @@ namespace exec {
           std::terminate();
         }
 
-        auto unhandled_stopped() noexcept -> __coro::coroutine_handle<__promise> {
+        auto unhandled_stopped() noexcept -> __std::coroutine_handle<__promise> {
           __is_unhandled_stopped_ = true;
-          return __coro::coroutine_handle<__promise>::from_promise(*this);
+          return __std::coroutine_handle<__promise>::from_promise(*this);
         }
 
         auto get_return_object() noexcept -> __task {
-          return __task(__coro::coroutine_handle<__promise>::from_promise(*this));
+          return __task(__std::coroutine_handle<__promise>::from_promise(*this));
         }
 
         template <class _Awaitable>
@@ -238,10 +238,10 @@ namespace exec {
 
         bool __is_unhandled_stopped_{false};
         std::tuple<_Ts&...> __args_{};
-        __any_scheduler_t __scheduler_{stdexec::inline_scheduler{}};
+        __any_scheduler_t __scheduler_{STDEXEC::inline_scheduler{}};
       };
 
-      __coro::coroutine_handle<__promise> __coro_;
+      __std::coroutine_handle<__promise> __coro_;
     };
 
     struct __at_coro_exit_t {

@@ -20,16 +20,16 @@
 #include "__detail/__query.hpp"
 #include "__detail/__stop_token.hpp" // IWYU pragma: export
 
-#include <version>
 #include <cstdint>
-#include <utility>
 #include <thread>
+#include <utility>
+#include <version>
 
 #if __has_include(<stop_token>) && __cpp_lib_jthread >= 2019'11L
 #  include <stop_token> // IWYU pragma: export
 #endif
 
-namespace stdexec {
+namespace STDEXEC {
   namespace __stok {
     struct __inplace_stop_callback_base {
       void __execute() noexcept {
@@ -178,7 +178,7 @@ namespace stdexec {
   class inplace_stop_callback : __stok::__inplace_stop_callback_base {
    public:
     template <class _Fun2>
-      requires constructible_from<_Fun, _Fun2>
+      requires __std::constructible_from<_Fun, _Fun2>
     explicit inplace_stop_callback(inplace_stop_token __token, _Fun2&& __fun)
       noexcept(__nothrow_constructible_from<_Fun, _Fun2>)
       : __stok::__inplace_stop_callback_base(
@@ -396,4 +396,4 @@ namespace stdexec {
   using in_place_stop_callback
     [[deprecated("in_place_stop_callback has been renamed inplace_stop_callback")]] =
       inplace_stop_callback<_Fun>;
-} // namespace stdexec
+} // namespace STDEXEC

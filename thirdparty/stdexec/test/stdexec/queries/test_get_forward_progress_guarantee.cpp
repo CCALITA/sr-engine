@@ -21,7 +21,7 @@
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wunused-function")
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 
 namespace {
   struct uncustomized_scheduler {
@@ -31,17 +31,17 @@ namespace {
     };
 
     struct sender {
-      using sender_concept = stdexec::sender_t;
+      using sender_concept = STDEXEC::sender_t;
       using completion_signatures =
         ex::completion_signatures<ex::set_value_t(), ex::set_error_t(std::exception_ptr)>;
 
       template <typename R>
-      friend auto tag_invoke(ex::connect_t, sender, R&&) -> operation_state {
+      auto connect(R&&) const -> operation_state {
         return {};
       }
 
       struct env {
-        template <stdexec::__completion_tag Tag>
+        template <STDEXEC::__completion_tag Tag>
         auto query(ex::get_completion_scheduler_t<Tag>) const noexcept -> uncustomized_scheduler {
           return {};
         }
@@ -69,17 +69,17 @@ namespace {
     };
 
     struct sender {
-      using sender_concept = stdexec::sender_t;
+      using sender_concept = STDEXEC::sender_t;
       using completion_signatures =
         ex::completion_signatures<ex::set_value_t(), ex::set_error_t(std::exception_ptr)>;
 
       template <typename R>
-      friend auto tag_invoke(ex::connect_t, sender, R&&) -> operation_state {
+      auto connect(R&&) const -> operation_state {
         return {};
       }
 
       struct env {
-        template <stdexec::__completion_tag Tag>
+        template <STDEXEC::__completion_tag Tag>
         auto query(ex::get_completion_scheduler_t<Tag>) const noexcept -> customized_scheduler {
           return {};
         }

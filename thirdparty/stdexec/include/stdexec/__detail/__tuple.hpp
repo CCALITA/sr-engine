@@ -15,10 +15,10 @@
  */
 #pragma once
 
-#include "__config.hpp"
 #include "__concepts.hpp"
-#include "__type_traits.hpp"
+#include "__config.hpp"
 #include "__meta.hpp"
+#include "__type_traits.hpp"
 
 #include <cstddef>
 
@@ -38,7 +38,7 @@
 STDEXEC_PRAGMA_PUSH()
 STDEXEC_PRAGMA_IGNORE_GNU("-Wmissing-braces")
 
-namespace stdexec {
+namespace STDEXEC {
   namespace __tup {
     template <class... _Ts>
     struct STDEXEC_ATTRIBUTE(empty_bases) __tuple;
@@ -93,24 +93,6 @@ namespace stdexec {
     struct __box {
       STDEXEC_IMMOVABLE_NO_UNIQUE_ADDRESS
       _Ty __value;
-    };
-
-    template <class _Ty>
-    concept __empty = STDEXEC_IS_EMPTY(_Ty) && STDEXEC_IS_TRIVIALLY_CONSTRUCTIBLE(_Ty)
-                   && STDEXEC_IS_TRIVIALLY_COPYABLE(_Ty);
-
-    template <__empty _Ty>
-    inline _Ty __value{};
-
-    // A specialization for empty types so that they don't take up space.
-    template <__empty _Ty, std::size_t _Idx>
-    struct __box<_Ty, _Idx> {
-      __box() = default;
-
-      constexpr __box(__not_decays_to<__box> auto&&) noexcept {
-      }
-
-      static constexpr _Ty& __value = __tup::__value<_Ty>;
     };
 
     template <class _Index, class... _Ts>
@@ -290,28 +272,28 @@ namespace stdexec {
           return static_cast<_Fn&&>(__fn)(static_cast<_Us&&>(__us)...);
         } else if constexpr (__size == 1) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(1, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(1, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 2) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(2, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(2, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 3) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(3, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(3, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 4) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(4, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(4, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 5) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(5, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(5, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 6) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(6, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(6, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 7) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(7, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(7, STDEXEC_TUPLE_GET));
         } else if constexpr (__size == 8) {
           return static_cast<_Fn&&>(__fn)(
-            static_cast<_Us&&>(__us)... STDEXEC_REPEAT(8, STDEXEC_TUPLE_GET));
+            static_cast<_Us&&>(__us)... STDEXEC_PP_REPEAT(8, STDEXEC_TUPLE_GET));
         } else {
           return __tupl.__apply(
             static_cast<_Fn&&>(__fn), static_cast<_Tuple&&>(__tupl), static_cast<_Us&&>(__us)...);
@@ -326,7 +308,7 @@ namespace stdexec {
   inline constexpr __tup::__apply_t __apply{};
 
   template <class _Fn, class _Tuple, class... _Us>
-  using __apply_result_t = __result_of<__apply, _Fn, _Tuple, _Us...>;
+  using __apply_result_t = __call_result_t<__tup::__apply_t, _Fn, _Tuple, _Us...>;
 
   template <class _Fn, class _Tuple, class... _Us>
   concept __applicable = __tup::__applicable_v<_Fn, _Tuple, _Us...>;
@@ -413,9 +395,18 @@ namespace stdexec {
   //
   // __tuple_element_t
   //
+  namespace __detail {
+    template <class _Index, class _Tuple>
+    using __tuple_element_t = decltype(__tt::__remove_rvalue_reference_fn(
+      STDEXEC::__get<_Index::value>(__declval<_Tuple>())));
+
+    template <size_t _Index, class _Tuple>
+      requires __mvalid<__tuple_element_t, __msize_t<_Index>, _Tuple>
+    extern __declfn_t<__tuple_element_t<__msize_t<_Index>, _Tuple>> __tuple_element_v;
+  } // namespace __detail
+
   template <size_t _Index, class _Tuple>
-  using __tuple_element_t = decltype(__tt::__remove_rvalue_reference_fn(
-    stdexec::__get<_Index>(__declval<_Tuple>())));
+  using __tuple_element_t = decltype(__detail::__tuple_element_v<_Index, _Tuple>());
 
   //
   // __cat_apply(fn, tups...)
@@ -427,7 +418,7 @@ namespace stdexec {
       operator<<(_Tuple&& __tup, _Fn __fn) noexcept(__nothrow_move_constructible<_Fn>) {
       return [&__tup, __fn = static_cast<_Fn&&>(__fn)]<class... _Us>(_Us&&... __us) noexcept(
                __nothrow_applicable<_Fn, _Tuple, _Us...>) -> __apply_result_t<_Fn, _Tuple, _Us...> {
-        return stdexec::__apply(__fn, static_cast<_Tuple&&>(__tup), static_cast<_Us&&>(__us)...);
+        return STDEXEC::__apply(__fn, static_cast<_Tuple&&>(__tup), static_cast<_Us&&>(__us)...);
       };
     }
 
@@ -451,6 +442,6 @@ namespace stdexec {
   };
 
   inline constexpr __mktuple_t __mktuple{};
-} // namespace stdexec
+} // namespace STDEXEC
 
 STDEXEC_PRAGMA_POP()

@@ -40,7 +40,7 @@
 #include "__atomic.hpp"
 #include <exception>
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.when_all]
   // [execution.senders.adaptors.when_all_with_variant]
@@ -67,10 +67,10 @@ namespace stdexec {
       && __mvalid<__value_types_of_t, _Sender, _Env, __mconst<int>, __msingle_or<void>>;
 
     template <
-      __mstring _Context = "In stdexec::when_all()..."_mstr,
+      __mstring _Context = "In STDEXEC::when_all()..."_mstr,
       __mstring _Diagnostic =
         "The given sender can complete successfully in more that one way. "
-        "Use stdexec::when_all_with_variant() instead."_mstr
+        "Use STDEXEC::when_all_with_variant() instead."_mstr
     >
     struct _INVALID_WHEN_ALL_ARGUMENT_;
 
@@ -143,9 +143,9 @@ namespace stdexec {
 
     template <class _Receiver, class _ValuesTuple>
     void __set_values(_Receiver& __rcvr, _ValuesTuple& __values) noexcept {
-      stdexec::__apply(
+      STDEXEC::__apply(
         [&]<class... OptTuples>(OptTuples&&... __opt_vals) noexcept -> void {
-          stdexec::__cat_apply(
+          STDEXEC::__cat_apply(
             __mk_completion_fn(set_value, __rcvr), *static_cast<OptTuples&&>(__opt_vals)...);
         },
         static_cast<_ValuesTuple&&>(__values));
@@ -225,7 +225,7 @@ namespace stdexec {
         // All child operations have completed and arrived at the barrier.
         switch (__state_.load(__std::memory_order_relaxed)) {
         case __started:
-          if constexpr (!same_as<_ValuesTuple, __ignore>) {
+          if constexpr (!__std::same_as<_ValuesTuple, __ignore>) {
             // All child operations completed successfully:
             __when_all::__set_values(__rcvr, __values_);
           }
@@ -239,7 +239,7 @@ namespace stdexec {
           break;
         case __stopped:
           if constexpr (_SendsStopped) {
-            stdexec::set_stopped(static_cast<_Receiver&&>(__rcvr));
+            STDEXEC::set_stopped(static_cast<_Receiver&&>(__rcvr));
           } else {
             STDEXEC_UNREACHABLE();
           }
@@ -289,7 +289,7 @@ namespace stdexec {
       [[nodiscard]]
       constexpr auto query(get_completion_behavior_t<_Tag>, const _Env&...) const noexcept {
         return completion_behavior::weakest(
-          stdexec::get_completion_behavior<_Tag, _Senders, _Env...>()...);
+          STDEXEC::get_completion_behavior<_Tag, _Senders, _Env...>()...);
       }
     };
 
@@ -310,18 +310,19 @@ namespace stdexec {
     template <class _Receiver>
     static auto __mk_state_fn(const _Receiver&) noexcept {
       using __env_of_t = env_of_t<_Receiver>;
-      return []<__max1_sender<__env_t<__env_of_t>>... _Child>(__ignore, __ignore, _Child&&...) {
-        using _Traits = __traits<__env_of_t, _Child...>;
-        using _ErrorsVariant = _Traits::__errors_variant;
-        using _ValuesTuple = _Traits::__values_tuple;
-        using _State = __when_all_state<
-          _ErrorsVariant,
-          _ValuesTuple,
-          _Receiver,
-          (sends_stopped<_Child, __env_of_t> || ...)
-        >;
-        return _State{sizeof...(_Child)};
-      };
+      return
+        []<__max1_sender<__env_t<__env_of_t>>... _Child>(__ignore, __ignore, _Child&&...) noexcept {
+          using _Traits = __traits<__env_of_t, _Child...>;
+          using _ErrorsVariant = _Traits::__errors_variant;
+          using _ValuesTuple = _Traits::__values_tuple;
+          using _State = __when_all_state<
+            _ErrorsVariant,
+            _ValuesTuple,
+            _Receiver,
+            (sends_stopped<_Child, __env_of_t> || ...)
+          >;
+          return _State{sizeof...(_Child)};
+        };
     }
 
     template <class _Receiver>
@@ -335,15 +336,19 @@ namespace stdexec {
     };
 
     struct __when_all_impl : __sexpr_defaults {
-      template <class _Self, class _Env>
-      using __error_t = __mexception<
-        _INVALID_ARGUMENTS_TO_WHEN_ALL_,
-        __children_of<_Self, __qq<_WITH_SENDERS_>>,
-        _WITH_ENVIRONMENT_<_Env>
+      template <class _Self, class... _Env>
+      using __error_t = std::conditional_t<
+        sizeof...(_Env) == 0,
+        __dependent_sender_error<_Self>,
+        __mexception<
+          _INVALID_ARGUMENTS_TO_WHEN_ALL_,
+          __children_of<_Self, __qq<_WITH_SENDERS_>>,
+          _WITH_ENVIRONMENT_<_Env>...
+        >
       >;
 
       template <class _Self, class... _Env>
-      using __completions = __children_of<_Self, __completions_t<__env_t<_Env>...>>;
+      using __completions_t = __children_of<_Self, __when_all::__completions_t<__env_t<_Env>...>>;
 
       static constexpr auto get_attrs = []<class... _Child>(__ignore, const _Child&...) noexcept {
         return __when_all::__attrs<_Child...>{};
@@ -352,7 +357,7 @@ namespace stdexec {
       static constexpr auto get_completion_signatures =
         []<class _Self, class... _Env>(_Self&&, _Env&&...) noexcept {
           static_assert(sender_expr_for<_Self, when_all_t>);
-          return __minvoke<__mtry_catch<__q<__completions>, __q<__error_t>>, _Self, _Env...>();
+          return __minvoke<__mtry_catch<__q<__completions_t>, __q<__error_t>>, _Self, _Env...>();
         };
 
       static constexpr auto get_env =
@@ -360,14 +365,13 @@ namespace stdexec {
           __ignore,
           _State& __state,
           const _Receiver& __rcvr) noexcept -> __env_t<env_of_t<const _Receiver&>> {
-        return __mkenv(stdexec::get_env(__rcvr), __state.__stop_source_);
+        return __mkenv(STDEXEC::get_env(__rcvr), __state.__stop_source_);
       };
 
       static constexpr auto get_state =
-        []<class _Self, class _Receiver>(_Self&& __self, _Receiver& __rcvr)
-        -> __sexpr_apply_result_t<_Self, __mk_state_fn_t<_Receiver>> {
-        return __sexpr_apply(
-          static_cast<_Self&&>(__self), __when_all::__mk_state_fn(__rcvr));
+        []<class _Self, class _Receiver>(_Self&& __self, _Receiver& __rcvr) noexcept
+        -> __apply_result_t<__mk_state_fn_t<_Receiver>, _Self> {
+        return __apply(__when_all::__mk_state_fn(__rcvr), static_cast<_Self&&>(__self));
       };
 
       static constexpr auto start = []<class _State, class _Receiver, class... _Operations>(
@@ -376,8 +380,9 @@ namespace stdexec {
                                       _Operations&... __child_ops) noexcept -> void {
         // register stop callback:
         __state.__on_stop_.emplace(
-          get_stop_token(stdexec::get_env(__rcvr)), __forward_stop_request<_State, _Receiver>{&__state, &__rcvr});
-        (stdexec::start(__child_ops), ...);
+          get_stop_token(STDEXEC::get_env(__rcvr)),
+          __forward_stop_request<_State, _Receiver>{&__state, &__rcvr});
+        (STDEXEC::start(__child_ops), ...);
         if constexpr (sizeof...(__child_ops) == 0) {
           __state.__complete(__rcvr);
         }
@@ -433,7 +438,7 @@ namespace stdexec {
           // We only need to bother recording the completion values
           // if we're not already in the "error" or "stopped" state.
           if (__state.__state_.load() == __started) {
-            auto& __opt_values = stdexec::__get<__v<_Index>>(__state.__values_);
+            auto& __opt_values = STDEXEC::__get<_Index::value>(__state.__values_);
             using _Tuple = __decayed_tuple<_Args...>;
             static_assert(
               __same_as<decltype(*__opt_values), _Tuple&>,
@@ -464,11 +469,11 @@ namespace stdexec {
       template <class _Sender, class _Env>
       static auto transform_sender(set_value_t, _Sender&& __sndr, const _Env&) {
         // transform when_all_with_variant(sndrs...) into when_all(into_variant(sndrs)...).
-        return __sexpr_apply(
-          static_cast<_Sender&&>(__sndr),
+        return __apply(
           [&]<class... _Child>(__ignore, __ignore, _Child&&... __child) {
             return when_all_t()(into_variant(static_cast<_Child&&>(__child))...);
-          });
+          },
+          static_cast<_Sender&&>(__sndr));
       }
     };
 
@@ -496,12 +501,12 @@ namespace stdexec {
       static auto transform_sender(set_value_t, _Sender&& __sndr, const _Env&) {
         // transform transfer_when_all(sch, sndrs...) into
         // continues_on(when_all(sndrs...), sch).
-        return __sexpr_apply(
-          static_cast<_Sender&&>(__sndr),
+        return __apply(
           [&]<class _Data, class... _Child>(__ignore, _Data&& __data, _Child&&... __child) {
             return continues_on(
               when_all_t()(static_cast<_Child&&>(__child)...), static_cast<_Data&&>(__data));
-          });
+          },
+          static_cast<_Sender&&>(__sndr));
       }
     };
 
@@ -532,12 +537,12 @@ namespace stdexec {
       static auto transform_sender(set_value_t, _Sender&& __sndr, const _Env&) {
         // transform the transfer_when_all_with_variant(sch, sndrs...) into
         // transfer_when_all(sch, into_variant(sndrs...))
-        return __sexpr_apply(
-          static_cast<_Sender&&>(__sndr),
+        return __apply(
           [&]<class _Data, class... _Child>(__ignore, _Data&& __data, _Child&&... __child) {
             return transfer_when_all_t()(
               static_cast<_Data&&>(__data), into_variant(static_cast<_Child&&>(__child))...);
-          });
+          },
+          static_cast<_Sender&&>(__sndr));
       }
     };
 
@@ -580,4 +585,4 @@ namespace stdexec {
   template <>
   struct __sexpr_impl<transfer_when_all_with_variant_t>
     : __when_all::__transfer_when_all_with_variant_impl { };
-} // namespace stdexec
+} // namespace STDEXEC

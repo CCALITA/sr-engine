@@ -16,33 +16,32 @@
  */
 #pragma once
 
-#include "../stdexec/execution.hpp"
-#include "../stdexec/__detail/__meta.hpp"
 #include "../stdexec/__detail/__basic_sender.hpp"
 #include "../stdexec/__detail/__manual_lifetime.hpp"
+#include "../stdexec/__detail/__meta.hpp"
+#include "../stdexec/execution.hpp"
 
-#include "trampoline_scheduler.hpp"
 #include "sequence.hpp"
+#include "trampoline_scheduler.hpp"
 
-#include "../stdexec/__detail/__atomic.hpp"
 #include <exception>
 #include <type_traits>
 
 namespace exec {
   namespace __repeat_effect {
-    using namespace stdexec;
+    using namespace STDEXEC;
 
     template <class _Sender, class _Receiver>
     struct __repeat_effect_state;
 
     template <class _SenderId, class _ReceiverId>
     struct __receiver {
-      using _Sender = stdexec::__t<_SenderId>;
-      using _Receiver = stdexec::__t<_ReceiverId>;
+      using _Sender = STDEXEC::__t<_SenderId>;
+      using _Receiver = STDEXEC::__t<_ReceiverId>;
 
       struct __t {
         using __id = __receiver;
-        using receiver_concept = stdexec::receiver_t;
+        using receiver_concept = STDEXEC::receiver_t;
         __repeat_effect_state<_Sender, _Receiver> *__state_;
 
         template <class... _Args>
@@ -60,78 +59,93 @@ namespace exec {
         }
 
         auto get_env() const noexcept -> env_of_t<_Receiver> {
-          return stdexec::get_env(__state_->__receiver());
+          return STDEXEC::get_env(__state_->__receiver());
         }
       };
     };
+
+    template <typename _T, bool _B>
+    concept __compile_time_bool_of = std::remove_cvref_t<_T>::value == _B;
 
     STDEXEC_PRAGMA_PUSH()
     STDEXEC_PRAGMA_IGNORE_GNU("-Wtsan")
 
     template <class _Sender, class _Receiver>
     struct __repeat_effect_state
-      : stdexec::__enable_receiver_from_this<
+      : STDEXEC::__enable_receiver_from_this<
           _Sender,
           _Receiver,
           __repeat_effect_state<_Sender, _Receiver>
         > {
       using __child_t = __decay_t<__data_of<_Sender>>;
-      using __receiver_t = stdexec::__t<__receiver<__id<_Sender>, __id<_Receiver>>>;
+      using __receiver_t = STDEXEC::__t<__receiver<__id<_Sender>, __id<_Receiver>>>;
       using __child_on_sched_sender_t =
         __result_of<exec::sequence, schedule_result_t<trampoline_scheduler &>, __child_t &>;
-      using __child_op_t = stdexec::connect_result_t<__child_on_sched_sender_t, __receiver_t>;
+      using __child_op_t = STDEXEC::connect_result_t<__child_on_sched_sender_t, __receiver_t>;
 
       __child_t __child_;
-      __std::atomic_flag __started_{};
-      stdexec::__manual_lifetime<__child_op_t> __child_op_;
+      bool __has_child_op_ = false;
+      STDEXEC::__manual_lifetime<__child_op_t> __child_op_;
       trampoline_scheduler __sched_;
 
       __repeat_effect_state(_Sender &&__sndr, _Receiver &)
-        : __child_(
-            __sexpr_apply(static_cast<_Sender &&>(__sndr), stdexec::__detail::__get_data())) {
+        : __child_(STDEXEC::__get<1>(static_cast<_Sender &&>(__sndr))) {
         __connect();
       }
 
       ~__repeat_effect_state() {
-        if (!__started_.test(__std::memory_order_acquire)) {
-          __std::atomic_thread_fence(__std::memory_order_release);
-          // TSan does not support __std::atomic_thread_fence, so we
-          // need to use the TSan-specific __tsan_release instead:
-          STDEXEC_WHEN(STDEXEC_TSAN(), __tsan_release(&__started_));
+        if (__has_child_op_) {
           __child_op_.__destroy();
         }
       }
 
       void __connect() {
         __child_op_.__construct_from([this] {
-          return stdexec::connect(
-            exec::sequence(stdexec::schedule(__sched_), __child_), __receiver_t{this});
+          return STDEXEC::connect(
+            exec::sequence(STDEXEC::schedule(__sched_), __child_), __receiver_t{this});
         });
+        __has_child_op_ = true;
+      }
+
+      void __destroy() noexcept {
+        __child_op_.__destroy();
+        __has_child_op_ = false;
       }
 
       void __start() noexcept {
-        const bool __already_started [[maybe_unused]]
-        = __started_.test_and_set(__std::memory_order_relaxed);
-        STDEXEC_ASSERT(!__already_started);
-        stdexec::start(__child_op_.__get());
+        STDEXEC_ASSERT(__has_child_op_);
+        STDEXEC::start(__child_op_.__get());
       }
 
       template <class _Tag, class... _Args>
-      void __complete(_Tag, _Args... __args) noexcept { // Intentionally by value...
-        __child_op_.__destroy(); // ... because this could potentially invalidate them.
-        if constexpr (same_as<_Tag, set_value_t>) {
+      void __complete(_Tag, _Args &&...__args) noexcept {
+        if constexpr (__std::same_as<_Tag, set_value_t>) {
           // If the sender completed with true, we're done
           STDEXEC_TRY {
-            const bool __done = (static_cast<bool>(__args) && ...);
-            if (__done) {
-              stdexec::set_value(static_cast<_Receiver &&>(this->__receiver()));
-            } else {
-              __connect();
-              stdexec::start(__child_op_.__get());
+            if constexpr ((__compile_time_bool_of<_Args, true> && ...)) {
+              STDEXEC::set_value(static_cast<_Receiver &&>(this->__receiver()));
+              return;
+            } else if constexpr (!(__compile_time_bool_of<_Args, false> && ...)) {
+              const bool __done = (static_cast<bool>(static_cast<_Args &&>(__args)) && ...);
+              if (__done) {
+                STDEXEC::set_value(static_cast<_Receiver &&>(this->__receiver()));
+                return;
+              }
             }
+            __destroy();
+            STDEXEC_TRY {
+              __connect();
+            }
+            STDEXEC_CATCH_ALL {
+              STDEXEC::set_error(
+                static_cast<_Receiver &&>(this->__receiver()), std::current_exception());
+              return;
+            }
+            STDEXEC::start(__child_op_.__get());
           }
           STDEXEC_CATCH_ALL {
-            stdexec::set_error(
+            __destroy();
+            STDEXEC::set_error(
               static_cast<_Receiver &&>(this->__receiver()), std::current_exception());
           }
         } else {
@@ -155,25 +169,27 @@ namespace exec {
     using __values_t =
       // There's something funny going on with __if_c here. Use std::conditional_t instead. :-(
       std::conditional_t<
-        ((sizeof...(_Args) == 1) && (convertible_to<_Args, bool> && ...)),
-        completion_signatures<>,
+        ((sizeof...(_Args) == 1) && (__std::convertible_to<_Args, bool> && ...)),
+        std::conditional_t<
+          (__compile_time_bool_of<_Args, false> && ...),
+          completion_signatures<>,
+          completion_signatures<set_value_t()>
+        >,
         __mexception<_INVALID_ARGUMENT_TO_REPEAT_EFFECT_UNTIL_<>, _WITH_SENDER_<_Sender>>
       >;
 
-    template <class _Error>
-    using __error_t = completion_signatures<set_error_t(__decay_t<_Error>)>;
+    template <class...>
+    using __delete_set_value_t = completion_signatures<>;
 
     template <class _Sender, class... _Env>
-    using __completions_t = stdexec::transform_completion_signatures<
+    using __completions_t = STDEXEC::transform_completion_signatures<
       __completion_signatures_of_t<__decay_t<_Sender> &, _Env...>,
-      stdexec::transform_completion_signatures<
-        __completion_signatures_of_t<stdexec::schedule_result_t<exec::trampoline_scheduler>, _Env...>,
+      STDEXEC::transform_completion_signatures<
+        __completion_signatures_of_t<STDEXEC::schedule_result_t<exec::trampoline_scheduler>, _Env...>,
         __eptr_completion,
-        __sigs::__default_set_value,
-        __error_t
+        __delete_set_value_t
       >,
-      __mbind_front_q<__values_t, _Sender>::template __f,
-      __error_t
+      __mbind_front_q<__values_t, _Sender>::template __f
     >;
 
     struct __repeat_effect_tag { };
@@ -209,11 +225,12 @@ namespace exec {
       }
 
       template <class _Sender>
-      auto transform_sender(stdexec::set_value_t, _Sender &&__sndr, __ignore) {
-        return __sexpr_apply(
-          static_cast<_Sender &&>(__sndr), []<class _Child>(__ignore, __ignore, _Child __child) {
+      auto transform_sender(STDEXEC::set_value_t, _Sender &&__sndr, __ignore) {
+        return STDEXEC::__apply(
+          []<class _Child>(__ignore, __ignore, _Child __child) {
             return __make_sexpr<__repeat_effect_until_tag>(std::move(__child));
-          });
+          },
+          static_cast<_Sender &&>(__sndr));
       }
     };
 
@@ -221,8 +238,8 @@ namespace exec {
       struct _never {
         template <class... _Args>
         STDEXEC_ATTRIBUTE(host, device, always_inline)
-        constexpr auto operator()(_Args &&...) const noexcept -> bool {
-          return false;
+        constexpr std::false_type operator()(_Args &&...) const noexcept {
+          return {};
         }
       };
 
@@ -237,10 +254,10 @@ namespace exec {
       }
 
       template <class _Sender>
-      auto transform_sender(stdexec::set_value_t, _Sender &&__sndr, __ignore) {
-        return __sexpr_apply(static_cast<_Sender &&>(__sndr), [](__ignore, __ignore, auto __child) {
-          return repeat_effect_until_t{}(stdexec::then(std::move(__child), _never{}));
-        });
+      auto transform_sender(STDEXEC::set_value_t, _Sender &&__sndr, __ignore) {
+        return STDEXEC::__apply([](__ignore, __ignore, auto __child) {
+          return repeat_effect_until_t{}(STDEXEC::then(std::move(__child), _never{}));
+        }, static_cast<_Sender &&>(__sndr));
       }
     };
   } // namespace __repeat_effect
@@ -252,10 +269,10 @@ namespace exec {
   inline constexpr repeat_effect_t repeat_effect{};
 } // namespace exec
 
-namespace stdexec {
+namespace STDEXEC {
   template <>
   struct __sexpr_impl<exec::__repeat_effect::__repeat_effect_until_tag>
-    : exec::__repeat_effect::__repeat_effect_until_impl { }; // namespace stdexec
+    : exec::__repeat_effect::__repeat_effect_until_impl { }; // namespace STDEXEC
 
   template <>
   struct __sexpr_impl<exec::repeat_effect_until_t> : __sexpr_defaults {
@@ -265,4 +282,4 @@ namespace stdexec {
       return {};
     };
   };
-} // namespace stdexec
+} // namespace STDEXEC

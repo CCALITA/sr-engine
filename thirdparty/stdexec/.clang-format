@@ -9,7 +9,7 @@ AlignConsecutiveDeclarations: None
 AlignConsecutiveMacros:
   Enabled: true
   AcrossEmptyLines: true
-  AcrossComments: true
+  AcrossComments: false
 AlignEscapedNewlines: Right
 AlignOperands: AlignAfterOperator
 AlignTrailingComments: true
@@ -121,7 +121,9 @@ RequiresClausePosition: OwnLine
 IndentRequiresClause: true
 SeparateDefinitionBlocks: Leave
 ShortNamespaceLines: 0
-SortIncludes: Never
+SortIncludes:
+  Enabled: true
+  IgnoreCase: false
 SortUsingDeclarations: false
 SpaceAfterCStyleCast: true
 SpaceAfterLogicalNot: false

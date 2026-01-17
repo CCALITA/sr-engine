@@ -15,18 +15,19 @@
  */
 #pragma once
 
-#include "__config.hpp"
 #include "__concepts.hpp"
+#include "__config.hpp"
 #include "__type_traits.hpp"
-#include "__utility.hpp"
+#include "__utility.hpp" // IWYU pragma: keep for __ignore_t
 
-#include <cstddef>
 #include <cassert>
 #include <compare>
+#include <cstddef>
+#include <source_location> // IWYU pragma: keep for std::source_location::current
 #include <string_view>
 #include <type_traits>
 
-namespace stdexec {
+namespace STDEXEC {
   //! Convenience metafunction getting the dependant type `__t` out of `_Tp`.
   //! That is, `typename _Tp::__t`.
   //! See MAINTAINERS.md#class-template-parameters for details.
@@ -63,7 +64,7 @@ namespace stdexec {
   struct __mconstant {
     using type = __mconstant;
     using value_type = __mtypeof<_Np>;
-    static constexpr auto value = _Np;
+    static constexpr value_type value = _Np;
 
     constexpr operator value_type() const noexcept {
       return value;
@@ -74,21 +75,8 @@ namespace stdexec {
     }
   };
 
-  // nvbugs#4679848 and nvbugs#4668709 also preclude __mconstant from representing a compile-time
-  // size_t.
-  enum class __u8 : unsigned char {
-  };
-
-#if STDEXEC_NVCC() || STDEXEC_EDG()
   template <std::size_t _Np>
   using __msize_t = std::integral_constant<std::size_t, _Np>;
-#elif STDEXEC_MSVC()
-  template <std::size_t _Np>
-  using __msize_t = __mconstant<_Np>;
-#else
-  template <std::size_t _Np>
-  using __msize_t = __u8 (*)[_Np + 1]; // +1 to avoid zero-size array
-#endif
 
   //! Metafunction selects the first of two type arguments.
   template <class _Tp, class _Up>
@@ -100,31 +88,6 @@ namespace stdexec {
 
   template <class...>
   struct __undefined;
-
-  template <class _Tp>
-  extern const __undefined<_Tp> __v;
-
-  template <class _Tp>
-    requires __typename<__mtypeof<_Tp::value>>
-  inline constexpr __mtypeof<_Tp::value> __v<_Tp> = _Tp::value;
-
-  // These specializations exist because instantiating a variable template is cheaper than
-  // instantiating a class template.
-  template <class _Tp, class _Up>
-  inline constexpr bool __v<std::is_same<_Tp, _Up>> = false;
-
-  template <class _Tp>
-  inline constexpr bool __v<std::is_same<_Tp, _Tp>> = true;
-
-  template <class _Tp, _Tp _Ip>
-  inline constexpr _Tp __v<std::integral_constant<_Tp, _Ip>> = _Ip;
-
-  // `__mtypeof<_Np>` instead of `auto` to work around NVHPC/EDG bug.
-  template <auto _Np>
-  inline constexpr __mtypeof<_Np> __v<__mconstant<_Np>> = _Np;
-
-  template <std::size_t _Np>
-  inline constexpr std::size_t __v<__u8 (*)[_Np]> = _Np - 1; // see definition of __msize_t
 
   template <std::size_t... _Is>
   struct __iota;
@@ -393,7 +356,7 @@ namespace stdexec {
 
   //! This struct template is like [mpl::quote](https://www.boost.org/doc/libs/1_86_0/libs/mpl/doc/refmanual/quote.html).
   //! It turns an alias/class template into a metafunction that also propagates "meta-exceptions".
-  //! All of the meta utilities recognize specializations of stdexec::_ERROR_ as an error type.
+  //! All of the meta utilities recognize specializations of STDEXEC::_ERROR_ as an error type.
   //! Error types short-circuit the evaluation of the metafunction and are automatically propagated like an exception.
   //! Note: `__minvoke` and `__meval` also participate in this error propagation.
   //!
@@ -484,40 +447,40 @@ namespace stdexec {
   template <template <class...> class _Fn, class... _Args>
   using __mmemoize_q = __mmemoize<__q<_Fn>, _Args...>;
 
-  struct __if_ {
-    //! Metafunction selects `_True` if the bool template is `true`, otherwise the second.
-    //! That is, `__<true>::__f<A, B>` is `A` and `__<false>::__f<A, B>` is B.
-    //! This is similar to `std::conditional_t<Cond, A, B>`.
+  namespace __detail {
     template <bool>
-    struct __ {
-      template <class _True, class...>
-      using __f = _True;
+    struct __if_ {
+      template <class _Then, class _Else>
+      using __f = _Then;
     };
 
-    template <class _Pred, class _True, class... _False>
-    using __f = __minvoke<__<static_cast<bool>(__v<_Pred>)>, _True, _False...>;
-  };
+    template <>
+    struct __if_<false> {
+      template <class _Then, class _Else>
+      using __f = _Else;
+    };
 
-  // Specialization; see above.
-  template <>
-  struct __if_::__<false> {
-    template <class, class _False>
-    using __f = _False;
-  };
+    template <class _Pred, class _Then, class _Else>
+    using __if_t = __if_<bool(_Pred::value)>::template __f<_Then, _Else>;
+  } // namespace __detail
 
-  template <class _Pred, class _True = void, class... _False>
-    requires(sizeof...(_False) <= 1)
-  using __if = __minvoke<__if_, _Pred, _True, _False...>;
+  //! Metafunction selects `_Then` if the bool template is `true`, otherwise the second.
+  //! This is similar to `std::conditional_t<Pred, Then, Else>` but instantiates fewer
+  //! templates.
+  template <class _Pred, class _Then, class _Else>
+  using __if = __meval<__detail::__if_t, _Pred, _Then, _Else>;
 
-  template <bool _Pred, class _True = void, class... _False>
-    requires(sizeof...(_False) <= 1)
-  using __if_c = __minvoke<__if_::__<_Pred>, _True, _False...>;
+  template <bool _Pred, class _Then, class _Else>
+  using __if_c = __minvoke<__detail::__if_<_Pred>, _Then, _Else>;
 
-  template <class _Pred, class _True, class _False, class... _Args>
-  using __minvoke_if = __minvoke<__if<_Pred, _True, _False>, _Args...>;
+  template <class _Pred, class _Then, class _Else, class... _Args>
+  using __minvoke_if = __minvoke<__if<_Pred, _Then, _Else>, _Args...>;
 
-  template <bool _Pred, class _True, class _False, class... _Args>
-  using __minvoke_if_c = __minvoke<__if_c<_Pred, _True, _False>, _Args...>;
+  template <bool _Pred, class _Then, class _Else, class... _Args>
+  using __minvoke_if_c = __minvoke<__if_c<_Pred, _Then, _Else>, _Args...>;
+
+  template <bool _Pred, class _Tp = void>
+  using __enable_if = std::enable_if_t<_Pred, _Tp>;
 
   template <class _Tp>
   struct __mconst {
@@ -585,12 +548,6 @@ namespace stdexec {
 
   template <class _Fn, class... _Args>
   using __mtry_invoke = __minvoke<__mtry_catch<_Fn, _WITH_META_FUNCTION_<_Fn>>, _Args...>;
-
-  template <class _Ty, class... _Default>
-  using __msuccess_or_t = __if_c<__ok<_Ty>, _Ty, _Default...>;
-
-  template <class _Ty, class... _Default>
-  using __merror_or_t = __if_c<__merror<_Ty>, _Ty, _Default...>;
 
   template <class _Fn, class _Continuation = __q<__types>>
   struct __mtransform {
@@ -736,7 +693,7 @@ namespace stdexec {
   template <class _Fn>
   struct __mcount_if {
     template <class... _Ts>
-    using __f = __msize_t<(bool(__v<__minvoke<_Fn, _Ts>>) + ... + 0)>;
+    using __f = __msize_t<(bool(__minvoke<_Fn, _Ts>::value) + ... + 0)>;
   };
 
   template <class _Tp>
@@ -859,23 +816,27 @@ namespace stdexec {
       return __sv.substr(__start, __len);
     }
 
-    template <class T>
+    template <class _Ty>
     [[nodiscard]]
     consteval std::string_view __get_pretty_name_helper() noexcept {
+#if STDEXEC_EDG()
       return __detail::__find_pretty_name(std::string_view{STDEXEC_PRETTY_FUNCTION()});
+#else
+      return __detail::__find_pretty_name(std::source_location::current().function_name());
+#endif
     }
 
-    template <class T>
+    template <class _Ty>
     [[nodiscard]]
     consteval std::string_view __get_pretty_name() noexcept {
-      return __detail::__get_pretty_name_helper<typename __xyzzy<T>::__plugh>();
+      return __detail::__get_pretty_name_helper<typename __xyzzy<_Ty>::__plugh>();
     }
   } // namespace __detail
 
   ////////////////////////////////////////////////////////////////////////////////////////////
-  // __mnameof: get the pretty name of a type T as a string_view at compile time
-  template <class T>
-  inline constexpr std::string_view __mnameof = __detail::__get_pretty_name<__demangle_t<T>>();
+  // __mnameof: get the pretty name of a type _Ty as a string_view at compile time
+  template <class _Ty>
+  inline constexpr std::string_view __mnameof = __detail::__get_pretty_name<__demangle_t<_Ty>>();
 
   static_assert(__mnameof<int> == "int");
 
@@ -885,13 +846,13 @@ namespace stdexec {
   concept __has_id = requires { typename _Ty::__id; };
 
   //! Identity mapping `_Ty` to itself.
-  //! That is, `__same_as<T, typename _Id<T>::__t>`.
+  //! That is, `__same_as<_Ty, typename _Id<_Ty>::__t>`.
   template <class _Ty>
   struct _Id {
     using __t = _Ty;
 
     // Uncomment the line below to find any code that likely misuses the
-    // ADL isolation mechanism. In particular, '__id<T>' when T is a
+    // ADL isolation mechanism. In particular, '__id<_Ty>' when _Ty is a
     // reference is a likely misuse. The static_assert below will trigger
     // when the type passed to the __id alias template is a reference to
     // a type that is setup to use ADL isolation.
@@ -1007,8 +968,10 @@ namespace stdexec {
       __if_c<
         __same_as<_Needle, _Head>,
         __mbind_front<_Continuation, _Head>,
-        __mbind_front<__mfind_<(sizeof...(_Tail) != 0)>, _Needle, _Continuation>>,
-      _Tail...>;
+        __mbind_front<__mfind_<(sizeof...(_Tail) != 0)>, _Needle, _Continuation>
+      >,
+      _Tail...
+    >;
   };
 
   template <>
@@ -1026,7 +989,8 @@ namespace stdexec {
   template <class _Needle>
   struct __mfind_i {
     template <class... _Args>
-    using __f = __msize_t<(sizeof...(_Args) - __v<__minvoke<__mfind<_Needle, __msize>, _Args...>>)>;
+    using __f =
+      __msize_t<(sizeof...(_Args) - __minvoke<__mfind<_Needle, __msize>, _Args...>::value)>;
   };
 
   template <bool>
@@ -1034,7 +998,7 @@ namespace stdexec {
     template <class _Fn, class _Continuation, class _Head, class... _Tail>
     using __f = __minvoke<
       __if_c<
-        __v<__minvoke<_Fn, _Head>>,
+        __minvoke<_Fn, _Head>::value,
         __mbind_front<_Continuation, _Head>,
         __mbind_front<__mfind_if_<(sizeof...(_Tail) != 0)>, _Fn, _Continuation>
       >,
@@ -1057,39 +1021,32 @@ namespace stdexec {
   template <class _Fn>
   struct __mfind_if_i {
     template <class... _Args>
-    using __f = __msize_t<(sizeof...(_Args) - __v<__minvoke<__mfind_if<_Fn, __msize>, _Args...>>)>;
+    using __f =
+      __msize_t<(sizeof...(_Args) - __minvoke<__mfind_if<_Fn, __msize>, _Args...>::value)>;
   };
 
-#if STDEXEC_MSVC()
-#  define __mvalue_of(...) __VA_ARGS__::value
-#else
-#  define __mvalue_of(...) __v<__VA_ARGS__>
-#endif
-
   template <class... _Booleans>
-  using __mand_t = __mbool<(__mvalue_of(_Booleans) && ...)>;
+  using __mand_t = __mbool<(_Booleans::value && ...)>;
   template <class... _Booleans>
   using __mand = __meval<__mand_t, _Booleans...>;
 
   template <class... _Booleans>
-  using __mor_t = __mbool<(__mvalue_of(_Booleans) || ...)>;
+  using __mor_t = __mbool<(_Booleans::value || ...)>;
   template <class... _Booleans>
   using __mor = __meval<__mor_t, _Booleans...>;
 
   template <class _Boolean>
-  using __mnot_t = __mbool<!__mvalue_of(_Boolean)>;
+  using __mnot_t = __mbool<!_Boolean::value>;
   template <class _Boolean>
   using __mnot = __meval<__mnot_t, _Boolean>;
 
 #if STDEXEC_EDG()
   template <class... _Ints>
-  struct __mplus_t : __mconstant<(__v<_Ints> + ...)> { };
+  struct __mplus_t : __mconstant<(_Ints::value + ...)> { };
 #else
   template <class... _Ints>
-  using __mplus_t = __mconstant<(__mvalue_of(_Ints) + ...)>;
+  using __mplus_t = __mconstant<(_Ints::value + ...)>;
 #endif
-
-#undef __mvalue_of
 
   template <class _Fn>
   struct __mall_of {
@@ -1109,18 +1066,18 @@ namespace stdexec {
     using __f = __mor<__minvoke<_Fn, _Args>...>;
   };
 
-#if !STDEXEC_STD_NO_PACK_INDEXING()
+#if !STDEXEC_NO_STD_PACK_INDEXING()
   STDEXEC_PRAGMA_PUSH()
   STDEXEC_PRAGMA_IGNORE_GNU("-Wc++26-extensions")
 
   template <bool>
   struct __m_at_ {
     template <class _Np, class... _Ts>
-    using __f = _Ts...[__v<_Np>];
+    using __f = _Ts...[_Np::value];
   };
 
   template <class _Np, class... _Ts>
-  using __m_at = __minvoke<__m_at_<__v<_Np> == ~0ul>, _Np, _Ts...>;
+  using __m_at = __minvoke<__m_at_<_Np::value == ~0ul>, _Np, _Ts...>;
 
   template <std::size_t _Np, class... _Ts>
   using __m_at_c = __minvoke<__m_at_<_Np == ~0ul>, __msize_t<_Np>, _Ts...>;
@@ -1130,11 +1087,11 @@ namespace stdexec {
   template <bool>
   struct __m_at_ {
     template <class _Np, class... _Ts>
-    using __f = __type_pack_element<__v<_Np>, _Ts...>;
+    using __f = __type_pack_element<_Np::value, _Ts...>;
   };
 
   template <class _Np, class... _Ts>
-  using __m_at = __minvoke<__m_at_<__v<_Np> == ~0ul>, _Np, _Ts...>;
+  using __m_at = __minvoke<__m_at_<_Np::value == ~0ul>, _Np, _Ts...>;
 
   template <std::size_t _Np, class... _Ts>
   using __m_at_c = __minvoke<__m_at_<_Np == ~0ul>, __msize_t<_Np>, _Ts...>;
@@ -1160,7 +1117,7 @@ namespace stdexec {
   using __m_at_c = __minvoke<__m_at_<__make_indices<_Np>>, _Ts...>;
 
   template <class _Np, class... _Ts>
-  using __m_at = __m_at_c<__v<_Np>, _Ts...>;
+  using __m_at = __m_at_c<_Np::value, _Ts...>;
 #endif
 
   template <class... _Ts>
@@ -1249,7 +1206,7 @@ namespace stdexec {
     template <std::size_t _Np>
     STDEXEC_ATTRIBUTE(always_inline)
     static constexpr auto __nth() noexcept {
-      return stdexec::__nth_pack_element<_Np>(_Vs...);
+      return STDEXEC::__nth_pack_element<_Np>(_Vs...);
     }
   };
 
@@ -1293,7 +1250,7 @@ namespace stdexec {
     > &;
 
     template <class _ExpectedSet, class... _Ts>
-    concept __mset_eq = (sizeof...(_Ts) == __v<__mapply<__msize, _ExpectedSet>>)
+    concept __mset_eq = (sizeof...(_Ts) == __mapply<__msize, _ExpectedSet>::value)
                      && __mset_contains<_ExpectedSet, _Ts...>;
 
     template <class _ExpectedSet>
@@ -1313,11 +1270,11 @@ namespace stdexec {
   using __mmake_set = __mset_insert<__mset<>, _Ts...>;
 
   template <class _Set1, class _Set2>
-  concept __mset_eq = __v<__mapply<__set::__eq<_Set1>, _Set2>>;
+  concept __mset_eq = __mapply<__set::__eq<_Set1>, _Set2>::value;
 
   template <class _Continuation = __q<__types>>
   struct __munique {
     template <class... _Ts>
     using __f = __mapply<_Continuation, __mmake_set<_Ts...>>;
   };
-} // namespace stdexec
+} // namespace STDEXEC

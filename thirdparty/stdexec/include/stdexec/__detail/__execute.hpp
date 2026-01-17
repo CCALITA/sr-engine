@@ -19,22 +19,22 @@
 
 #include "__concepts.hpp"
 #include "__receivers.hpp"
-#include "__senders.hpp"
 #include "__schedulers.hpp"
+#include "__senders.hpp"
 #include "__start_detached.hpp"
 #include "__then.hpp"
 #include "__transform_sender.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.execute]
   namespace __execute_ {
     struct execute_t {
       template <scheduler _Scheduler, class _Fun>
-        requires __callable<_Fun&> && move_constructible<_Fun>
+        requires __callable<_Fun&> && __std::move_constructible<_Fun>
       void operator()(_Scheduler&& __sched, _Fun __fun) const noexcept(false) {
         auto __domain = get_domain(__sched);
-        stdexec::apply_sender(
+        STDEXEC::apply_sender(
           __domain,
           *this,
           schedule(static_cast<_Scheduler&&>(__sched)),
@@ -42,7 +42,7 @@ namespace stdexec {
       }
 
       template <sender_of<set_value_t()> _Sender, class _Fun>
-        requires __callable<_Fun&> && move_constructible<_Fun>
+        requires __callable<_Fun&> && __std::move_constructible<_Fun>
       void apply_sender(_Sender&& __sndr, _Fun __fun) const noexcept(false) {
         start_detached(then(static_cast<_Sender&&>(__sndr), static_cast<_Fun&&>(__fun)));
       }
@@ -51,4 +51,4 @@ namespace stdexec {
 
   using __execute_::execute_t;
   inline constexpr execute_t execute{};
-} // namespace stdexec
+} // namespace STDEXEC

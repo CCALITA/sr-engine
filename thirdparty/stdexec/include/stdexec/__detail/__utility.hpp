@@ -15,14 +15,14 @@
  */
 #pragma once
 
-#include "__config.hpp"
 #include "__concepts.hpp"
+#include "__config.hpp"
 #include "__type_traits.hpp"
 
 #include <initializer_list>
 #include <type_traits>
 
-namespace stdexec {
+namespace STDEXEC {
   constexpr std::size_t __npos = ~0UL;
 
   template <class...>
@@ -74,6 +74,7 @@ namespace stdexec {
     auto operator=(const __move_only&) -> __move_only& = delete;
   };
 
+  // Helper to combine multiple function objects into one overload set
   template <class... _Fns>
   struct __overload : _Fns... {
     using _Fns::operator()...;
@@ -81,6 +82,18 @@ namespace stdexec {
 
   template <class... _Fns>
   __overload(_Fns...) -> __overload<_Fns...>;
+
+  // Helper to make a type ill-formed if it is one of the given types
+  template <class _Ty, class... _Us>
+    requires __none_of<_Ty, _Us...>
+  using __unless_one_of_t = _Ty;
+
+  // Helper to select overloads by priority:
+  template <int _Iy>
+  struct __priority : __priority<_Iy - 1> { };
+
+  template <>
+  struct __priority<0> { };
 
   inline constexpr auto __umax(std::initializer_list<std::size_t> __il) noexcept -> std::size_t {
     std::size_t __m = 0;
@@ -172,10 +185,10 @@ namespace stdexec {
       _Ty __value;
     };
   };
-} // namespace stdexec
+} // namespace STDEXEC
 
 #if defined(__cpp_auto_cast) && (__cpp_auto_cast >= 2021'10L)
 #  define STDEXEC_DECAY_COPY(...) auto(__VA_ARGS__)
 #else
-#  define STDEXEC_DECAY_COPY(...) (true ? (__VA_ARGS__) : stdexec::__decay_copy(__VA_ARGS__))
+#  define STDEXEC_DECAY_COPY(...) (true ? (__VA_ARGS__) : STDEXEC::__decay_copy(__VA_ARGS__))
 #endif

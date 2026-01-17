@@ -15,11 +15,11 @@
  */
 #pragma once
 
-#include "__config.hpp"
 #include "__concepts.hpp"
+#include "__config.hpp"
 #include "__utility.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   template <class _Fn, class... _Ts>
     requires __nothrow_callable<_Fn, _Ts...>
   struct __scope_guard;
@@ -100,4 +100,4 @@ namespace stdexec {
 
   template <class _Fn, class... _Ts>
   __scope_guard(_Fn, _Ts...) -> __scope_guard<_Fn, _Ts...>;
-} // namespace stdexec
+} // namespace STDEXEC

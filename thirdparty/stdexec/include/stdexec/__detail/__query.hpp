@@ -19,16 +19,16 @@
 
 // // include these after __execution_fwd.hpp
 #include "__concepts.hpp"
-#include "__tag_invoke.hpp"
 #include "__meta.hpp"
+#include "__tag_invoke.hpp"
 #include "__utility.hpp"
 
 #include <type_traits>
 
-namespace stdexec {
+namespace STDEXEC {
   // [exec.queries.queryable]
   template <class T>
-  concept queryable = destructible<T>;
+  concept queryable = __std::destructible<T>;
 
   template <class _Env, class _Query, class... _Args>
   concept __member_queryable_with =
@@ -91,9 +91,9 @@ namespace stdexec {
     // Query with tag_invoke (legacy):
     template <class _Qy = _Query, class _Env, class... _Args>
       requires tag_invocable<_Qy, const _Env&, _Args...>
-    // [[deprecated("the use of tag_invoke for queries is deprecated")]]
-    STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device) constexpr auto
-      operator()(const _Env& __env, _Args&&... __args) const
+    [[deprecated("the use of tag_invoke for queries is deprecated")]]
+    STDEXEC_ATTRIBUTE(nodiscard, always_inline, host, device) //
+      constexpr auto operator()(const _Env& __env, _Args&&... __args) const
       noexcept(nothrow_tag_invocable<_Qy, const _Env&, _Args...>)
         -> __mcall1<_Transform, tag_invoke_result_t<_Qy, const _Env&, _Args...>> {
       if constexpr (__has_validation<_Query, _Env, _Args...>) {
@@ -134,7 +134,7 @@ namespace stdexec {
         if constexpr (__queryable_with<_Query, forwarding_query_t>) {
           return __query<forwarding_query_t>()(_Query());
         } else {
-          return derived_from<_Query, forwarding_query_t>;
+          return __std::derived_from<_Query, forwarding_query_t>;
         }
       }
     };
@@ -182,4 +182,4 @@ namespace stdexec {
   inline constexpr bool __is_completion_query<get_completion_scheduler_t<_Tag>> = true;
   template <class _Tag>
   inline constexpr bool __is_completion_query<get_completion_behavior_t<_Tag>> = true;
-} // namespace stdexec
+} // namespace STDEXEC

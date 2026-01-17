@@ -1,12 +1,11 @@
+#include "test_common/receivers.hpp"
+#include "test_common/schedulers.hpp"
 #include <catch2/catch.hpp>
 #include <exec/async_scope.hpp>
 #include <exec/just_from.hpp>
 #include <exec/static_thread_pool.hpp>
-#include <exec/just_from.hpp>
-#include "test_common/schedulers.hpp"
-#include "test_common/receivers.hpp"
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 using exec::async_scope;
 using ex::sync_wait;
 
@@ -26,7 +25,7 @@ namespace {
     loop.run();
   }
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   //! Sender that throws exception when connected
   struct throwing_sender {
     using sender_concept = ex::sender_t;
@@ -42,12 +41,11 @@ namespace {
     };
 
     template <class Receiver>
-    friend auto tag_invoke(ex::connect_t, throwing_sender&&, Receiver&&)
-      -> operation<std::decay_t<Receiver>> {
+    auto connect(Receiver&&) && -> operation<std::decay_t<Receiver>> {
       throw std::logic_error("cannot connect");
     }
   };
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   TEST_CASE("spawn_future will execute its work", "[async_scope][spawn_future]") {
     impulse_scheduler sch;
@@ -141,7 +139,7 @@ namespace {
     expect_empty(scope);
   }
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   TEST_CASE("spawn_future with throwing copy", "[async_scope][spawn_future]") {
     async_scope scope;
     exec::static_thread_pool pool{2};
@@ -170,7 +168,7 @@ namespace {
     }
     sync_wait(scope.on_empty());
   }
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   TEST_CASE(
     "spawn_future returned sender can be connected but not started",
@@ -228,7 +226,7 @@ namespace {
     expect_empty(scope);
   }
 
-#if !STDEXEC_STD_NO_EXCEPTIONS()
+#if !STDEXEC_NO_STD_EXCEPTIONS()
   TEST_CASE(
     "spawn_future will propagate exceptions encountered during op creation",
     "[async_scope][spawn_future]") {
@@ -247,7 +245,7 @@ namespace {
     }
     expect_empty(scope);
   }
-#endif // !STDEXEC_STD_NO_EXCEPTIONS()
+#endif // !STDEXEC_NO_STD_EXCEPTIONS()
 
   TEST_CASE(
     "TODO: spawn_future will keep the scope non-empty until the work is executed",

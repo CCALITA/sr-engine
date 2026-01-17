@@ -19,12 +19,12 @@
 
 // include these after __execution_fwd.hpp
 #include "__concepts.hpp"
+#include "__just.hpp"
+#include "__let.hpp"
 #include "__sender_adaptor_closure.hpp"
 #include "__senders.hpp"
-#include "__let.hpp"
-#include "__just.hpp"
 
-namespace stdexec {
+namespace STDEXEC {
   /////////////////////////////////////////////////////////////////////////////
   // [execution.senders.adaptors.stopped_as_error]
   namespace __sae {
@@ -49,4 +49,4 @@ namespace stdexec {
 
   using __sae::stopped_as_error_t;
   inline constexpr stopped_as_error_t stopped_as_error{};
-} // namespace stdexec
+} // namespace STDEXEC

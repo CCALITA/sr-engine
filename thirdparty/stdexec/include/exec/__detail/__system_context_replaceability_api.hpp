@@ -19,11 +19,11 @@
 
 #include "../../stdexec/__detail/__execution_fwd.hpp"
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <span>
 
 struct __uuid {
@@ -56,7 +56,7 @@ namespace exec::system_context_replaceability {
 
   /// `inplace_stope_token` is a runtime property.
   template <>
-  struct __runtime_property_helper<stdexec::inplace_stop_token> {
+  struct __runtime_property_helper<STDEXEC::inplace_stop_token> {
     static constexpr bool __is_property = true;
     static constexpr __uuid __property_identifier{0x8779c09d8aa249df, 0x867db0e653202604};
   };

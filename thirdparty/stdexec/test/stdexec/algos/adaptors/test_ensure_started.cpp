@@ -17,13 +17,13 @@
 
 #include <catch2/catch.hpp>
 
-#include <stdexec/execution.hpp>
 #include <exec/async_scope.hpp>
-#include <test_common/schedulers.hpp>
+#include <stdexec/execution.hpp>
 #include <test_common/receivers.hpp>
+#include <test_common/schedulers.hpp>
 #include <test_common/type_helpers.hpp>
 
-namespace ex = stdexec;
+namespace ex = STDEXEC;
 using exec::async_scope;
 
 namespace {
@@ -282,7 +282,7 @@ namespace {
     CHECK_FALSE(called);
     auto snd2 = ex::ensure_started(std::move(snd1));
     auto snd = ex::ensure_started(std::move(snd2));
-    STATIC_REQUIRE(ex::same_as<decltype(snd2), decltype(snd)>);
+    STATIC_REQUIRE(std::same_as<decltype(snd2), decltype(snd)>);
     CHECK(called);
     auto op = ex::connect(std::move(snd), expect_void_receiver{});
     ex::start(op);
@@ -313,12 +313,7 @@ namespace {
     using completion_signatures = ex::completion_signatures_of_t<decltype(ex::just())>;
 
     template <class Recv>
-    friend auto tag_invoke(ex::connect_t, my_sender&&, Recv&& recv) {
-      return ex::connect(ex::just(), std::forward<Recv>(recv));
-    }
-
-    template <class Recv>
-    friend auto tag_invoke(ex::connect_t, const my_sender&, Recv&& recv) {
+    auto connect(Recv&& recv) const {
       return ex::connect(ex::just(), std::forward<Recv>(recv));
     }
   };
@@ -331,7 +326,7 @@ namespace {
     using Snd = decltype(snd2);
     static_assert(ex::enable_sender<Snd>);
     static_assert(ex::sender<Snd>);
-    static_assert(ex::same_as<ex::env_of_t<Snd>, ex::env<>>);
+    static_assert(std::same_as<ex::env_of_t<Snd>, ex::env<>>);
     (void) snd1;
     (void) snd2;
   }

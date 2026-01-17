@@ -1,43 +1,44 @@
 #include "engine/type_system.hpp"
 
-#include <array>
-#include <cstring>
+#include "engine/type_encoding.hpp"
+#include "engine/type_hash.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
 
 namespace sr::engine {
 namespace {
 
-constexpr auto fnv_offset = 14695981039346656037ULL;
-constexpr auto fnv_prime = 1099511628211ULL;
+auto to_payload(const TypeEncoding &encoding) -> std::string_view {
+  return std::string_view(
+      reinterpret_cast<const char *>(encoding.bytes.data()),
+      encoding.bytes.size());
+}
 
-auto hash_bytes(const std::uint8_t *data, std::size_t size) -> std::uint64_t {
-  std::uint64_t hash = fnv_offset;
-  for (std::size_t i = 0; i < size; ++i) {
-    hash ^= data[i];
-    hash *= fnv_prime;
+auto digest_to_type_id(const TypeDigest &digest) -> TypeId {
+  TypeId id = 0;
+  for (std::size_t i = 0; i < sizeof(TypeId); ++i) {
+    id |= static_cast<TypeId>(digest.bytes[i]) << (i * 8);
   }
-  return hash;
+  return id;
 }
 
-auto hash_string(std::string_view value) -> std::uint64_t {
-  auto *data = reinterpret_cast<const std::uint8_t *>(value.data());
-  return hash_bytes(data, value.size());
+auto digest_to_fingerprint(const TypeDigest &digest) -> TypeFingerprint {
+  TypeFingerprint fingerprint{};
+  fingerprint.bytes = digest.bytes;
+  return fingerprint;
 }
 
-auto to_fingerprint(std::uint64_t high, std::uint64_t low) -> TypeFingerprint {
-  TypeFingerprint fp{};
-  for (int i = 0; i < 8; ++i) {
-    fp.bytes[static_cast<std::size_t>(i)] =
-        static_cast<std::uint8_t>((high >> (i * 8)) & 0xFF);
-    fp.bytes[static_cast<std::size_t>(i + 8)] =
-        static_cast<std::uint8_t>((low >> (i * 8)) & 0xFF);
-  }
-  return fp;
-}
+auto build_primitive_info(std::string_view name) -> TypeInfo {
+  const auto encoding = encode_primitive(name);
+  const auto digest = hash_type_bytes(to_payload(encoding));
 
-auto build_primitive_fingerprint(std::string_view name) -> TypeFingerprint {
-  const auto name_hash = hash_string(name);
-  const auto tag_hash = hash_string("prim");
-  return to_fingerprint(tag_hash ^ name_hash, name_hash);
+  TypeInfo info;
+  info.name = std::string(name);
+  info.id = digest_to_type_id(digest);
+  info.fingerprint = digest_to_fingerprint(digest);
+  return info;
 }
 
 } // namespace
@@ -47,19 +48,13 @@ auto TypeRegistry::create() -> std::shared_ptr<TypeRegistry> {
 }
 
 auto TypeRegistry::intern_primitive(std::string_view name) -> TypeId {
-  const auto fingerprint = build_primitive_fingerprint(name);
-  std::uint64_t id = 0;
-  std::memcpy(&id, fingerprint.bytes.data(), sizeof(TypeId));
+  auto info = build_primitive_info(name);
+  const auto id = info.id;
 
   auto existing = id_to_index_.find(id);
   if (existing != id_to_index_.end()) {
     return id;
   }
-
-  TypeInfo info;
-  info.name = std::string(name);
-  info.id = id;
-  info.fingerprint = fingerprint;
 
   id_to_index_.emplace(id, entries_.size());
   entries_.push_back(Entry{std::move(info)});

@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "engine/type_hash.hpp"
+
 namespace sr::engine {
 
 using TypeId = std::uint64_t;

@@ -26,6 +26,37 @@ auto test_type_hash_stable() -> bool {
   return true;
 }
 
+auto test_typeid_from_encoding() -> bool {
+  auto registry = sr::engine::TypeRegistry::create();
+  const auto encoding = sr::engine::encode_primitive("i64");
+  const auto payload = std::string_view(
+      reinterpret_cast<const char *>(encoding.bytes.data()),
+      encoding.bytes.size());
+  const auto digest = sr::engine::hash_type_bytes(payload);
+
+  std::uint64_t expected_id = 0;
+  for (std::size_t i = 0; i < sizeof(std::uint64_t); ++i) {
+    expected_id |= static_cast<std::uint64_t>(digest.bytes[i]) << (i * 8);
+  }
+
+  const auto id = registry->intern_primitive("i64");
+  if (id == 0 || id != expected_id) {
+    std::cerr << "expected TypeId derived from encoding\n";
+    return false;
+  }
+
+  const auto *info = registry->lookup(id);
+  if (!info) {
+    std::cerr << "expected lookup for TypeId\n";
+    return false;
+  }
+  if (info->fingerprint.bytes != digest.bytes) {
+    std::cerr << "expected fingerprint to store digest\n";
+    return false;
+  }
+  return true;
+}
+
 auto test_primitive_encoding_stable() -> bool {
   const auto bytes1 = sr::engine::encode_primitive("i64");
   const auto bytes2 = sr::engine::encode_primitive("i64");
@@ -60,6 +91,12 @@ int main() {
     std::cout << "[PASS] primitive_encoding_stable\n";
   } else {
     std::cout << "[FAIL] primitive_encoding_stable\n";
+    passed = false;
+  }
+  if (test_typeid_from_encoding()) {
+    std::cout << "[PASS] typeid_from_encoding\n";
+  } else {
+    std::cout << "[FAIL] typeid_from_encoding\n";
     passed = false;
   }
   return passed ? 0 : 1;

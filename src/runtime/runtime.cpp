@@ -1,4 +1,5 @@
 #include "runtime/runtime.hpp"
+#include "common/logging/log.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -67,9 +68,9 @@ public:
     stdexec::sync_wait(scope_.on_empty());
   }
 
-private:
+ private:
   auto log_error(std::string message) -> void {
-    std::cerr << "[GraphDaemon] " << message << std::endl;
+    sr::log::error(message.c_str());
   }
 
   auto scan_once() -> void {
@@ -196,12 +197,19 @@ Runtime::Runtime(RuntimeConfig config)
                       : (std::thread::hardware_concurrency() > 0
                              ? std::thread::hardware_concurrency()
                              : 1)),
-      store_(config.store), executor_(&thread_pool_) {
+       store_(config.store), executor_(&thread_pool_) {
+  sr::log::init();
+  
+  sr::log::info("Initializing sr-engine runtime");
+  
   if (config.graph_root && !config.graph_root->empty()) {
+    sr::log::info("Starting graph daemon watching '{}'", config.graph_root->string());
     daemon_ = std::make_unique<GraphDaemon>(
         *this, *config.graph_root, config.graph_poll_interval,
         config.graph_extension, config.graph_recursive,
         config.graph_allow_replace);
+  } else {
+    sr::log::info("Runtime initialized without graph daemon");
   }
 }
 
@@ -257,7 +265,7 @@ auto Runtime::stage_file(std::string_view path, const StageOptions &options)
   return stage_dsl(buffer.str(), options);
 }
 
-auto Runtime::publish(std::string_view name, int version,
+auto Runtime::publish(std::string_view name, Version version,
                       PublishOptions options)
     -> Expected<std::shared_ptr<const PlanSnapshot>> {
   return store_.publish(name, version, options);
@@ -268,21 +276,21 @@ auto Runtime::resolve(std::string_view name) const
   return store_.resolve(name);
 }
 
-auto Runtime::resolve(std::string_view name, int version) const
+auto Runtime::resolve(std::string_view name, Version version) const
     -> std::shared_ptr<const PlanSnapshot> {
   return store_.resolve(name, version);
 }
 
 auto Runtime::active_version(std::string_view name) const
-    -> std::optional<int> {
+    -> std::optional<Version> {
   return store_.active_version(name);
 }
 
-auto Runtime::list_versions(std::string_view name) const -> std::vector<int> {
+auto Runtime::list_versions(std::string_view name) const -> std::vector<Version> {
   return store_.list_versions(name);
 }
 
-auto Runtime::evict(std::string_view name, int version) -> bool {
+auto Runtime::evict(std::string_view name, Version version) -> bool {
   return store_.evict(name, version);
 }
 
@@ -300,12 +308,12 @@ auto Runtime::run(std::string_view name, RequestContext &ctx) const
   return run(snapshot, ctx);
 }
 
-auto Runtime::run(std::string_view name, int version, RequestContext &ctx) const
+auto Runtime::run(std::string_view name, Version version, RequestContext &ctx) const
     -> Expected<ExecResult> {
   auto snapshot = store_.resolve(name, version);
   if (!snapshot) {
     return tl::unexpected(make_error(
-        std::format("graph version not found: {} v{}", name, version)));
+        std::format("graph version not found: {} v{}", name, version.to_string())));
   }
   return run(snapshot, ctx);
 }

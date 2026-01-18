@@ -5,6 +5,7 @@
 
 #include "engine/error.hpp"
 #include "engine/types.hpp"
+#include "engine/version.hpp"
 
 namespace sr::engine {
 
@@ -49,7 +50,7 @@ struct OutputDef {
 
 /// Parsed graph definition used for compilation.
 struct GraphDef {
-  int version = 1;
+  Version version{1, 0, 0};
   std::string name;
   std::vector<NodeDef> nodes;
   std::vector<BindingDef> bindings;

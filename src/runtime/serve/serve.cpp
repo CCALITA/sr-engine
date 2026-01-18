@@ -27,6 +27,7 @@
 #include <stdexec/execution.hpp>
 
 #include "engine/error.hpp"
+#include "engine/version.hpp"
 #include "kernel/rpc_kernels.hpp"
 #include "runtime/runtime.hpp"
 #include "runtime/serve/common.hpp"
@@ -41,13 +42,13 @@ namespace sr::engine::serve::detail {
 
 struct GraphSelection final {
   std::string name;
-  std::optional<int> version;
+  std::optional<Version> version;
 };
 
 struct GraphKeyHash final {
   auto operator()(const GraphKey &key) const noexcept -> std::size_t {
     const auto h1 = std::hash<std::string>{}(key.name);
-    const auto h2 = std::hash<int>{}(key.version);
+    const auto h2 = std::hash<Version>{}(key.version);
     return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
   }
 };
@@ -60,16 +61,8 @@ struct GraphKeyEqual final {
 };
 
 [[nodiscard]]
-auto parse_graph_version(std::string_view value) -> Expected<int> {
-  int parsed = 0;
-  const auto *begin = value.data();
-  const auto *end = value.data() + value.size();
-  auto [ptr, ec] = std::from_chars(begin, end, parsed);
-  if (ec != std::errc{} || ptr != end) {
-    return tl::unexpected(
-        make_error(std::format("invalid graph version metadata: {}", value)));
-  }
-  return parsed;
+auto parse_graph_version(std::string_view value) -> Expected<Version> {
+  return Version::parse(value);
 }
 
 [[nodiscard]]
@@ -286,9 +279,9 @@ private:
       if (!snapshot) {
         return tl::unexpected(
             make_error(std::format("graph version not found: {} v{}",
-                                   selection.name, *selection.version)));
+                                   selection.name, selection.version->to_string())));
       }
-      return snapshot;
+      return snapshot;;
     }
     auto snapshot = runtime->resolve(selection.name);
     if (!snapshot) {

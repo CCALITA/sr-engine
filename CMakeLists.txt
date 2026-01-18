@@ -15,7 +15,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_options(-O3 -fPIC -g -Wno-error)
-set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
 if (APPLE AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
   set(SR_ENGINE_GCC_QUICK_EXIT_HEADER
@@ -30,6 +29,8 @@ endif()
 
 add_library(sr_engine
   src/compat/quick_exit_compat.cpp
+  src/common/logging/flags.cpp
+  src/common/logging/log.cpp
   src/engine/dsl.cpp
   src/engine/fusion.cpp
   src/engine/graph_store.cpp
@@ -38,6 +39,7 @@ add_library(sr_engine
   src/engine/type_encoding.cpp
   src/engine/type_hash.cpp
   src/engine/type_system.cpp
+  src/engine/version.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
   src/runtime/serve/serve.cpp
@@ -56,8 +58,21 @@ target_include_directories(sr_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdexec/include
 )
 
+add_subdirectory(thirdparty/spdlog)
+target_link_libraries(sr_engine PUBLIC spdlog_header_only)
 
 option(SR_ENGINE_ENABLE_ARROW_FLIGHT "Enable Arrow Flight serve support." ON)
+
+find_package(gflags CONFIG)
+if(TARGET gflags::gflags)
+  target_link_libraries(sr_engine PUBLIC gflags::gflags)
+else()
+  find_library(gflags_lib NAMES gflags PATHS /opt/homebrew/lib /usr/local/lib NO_DEFAULT_PATH)
+  if(NOT gflags_lib)
+    message(FATAL_ERROR "gflags library not found")
+  endif()
+  target_link_libraries(sr_engine PUBLIC "${gflags_lib}")
+endif()
 
 find_package(gRPC CONFIG REQUIRED)
 target_link_libraries(sr_engine PUBLIC gRPC::grpc++ gRPC::grpc)

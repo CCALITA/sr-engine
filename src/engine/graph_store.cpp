@@ -27,6 +27,10 @@ struct HashBuilder {
     add(std::to_string(number));
   }
 
+  void add_version(const Version& v) {
+    add(v.to_string());
+  }
+
   void add_json(const Json& json) {
     add(json.dump());
   }
@@ -40,7 +44,7 @@ auto hash_graph(const GraphDef& graph) -> std::string {
   HashBuilder builder;
   builder.add("graph");
   builder.add(graph.name);
-  builder.add_int(graph.version);
+  builder.add_version(graph.version);
 
   builder.add("nodes");
   builder.add_int(static_cast<std::int64_t>(graph.nodes.size()));
@@ -100,9 +104,7 @@ auto GraphStore::stage(const GraphDef& graph, const KernelRegistry& registry, co
   if (graph.name.empty()) {
     return tl::unexpected(make_error("graph name is required"));
   }
-  if (graph.version < 0) {
-    return tl::unexpected(make_error("graph version must be non-negative"));
-  }
+  // version is always valid struct
 
   auto plan = compile_plan(graph, registry);
   if (!plan) {
@@ -133,7 +135,7 @@ auto GraphStore::stage(const GraphDef& graph, const KernelRegistry& registry, co
     }
     if (!options.allow_replace) {
       return tl::unexpected(make_error(
-        std::format("graph version already exists with different hash: {} v{}", graph.name, graph.version)));
+        std::format("graph version already exists with different hash: {} v{}", graph.name, graph.version.to_string())));
     }
   }
 
@@ -150,7 +152,7 @@ auto GraphStore::stage(const GraphDef& graph, const KernelRegistry& registry, co
   return snapshot;
 }
 
-auto GraphStore::publish(std::string_view name, int version, PublishOptions options)
+auto GraphStore::publish(std::string_view name, Version version, PublishOptions options)
   -> Expected<std::shared_ptr<const PlanSnapshot>> {
   std::unique_lock lock(mutex_);
   auto it = entries_.find(std::string(name));
@@ -160,7 +162,7 @@ auto GraphStore::publish(std::string_view name, int version, PublishOptions opti
   auto& entry = it->second;
   auto snapshot_it = entry.versions.find(version);
   if (snapshot_it == entry.versions.end()) {
-    return tl::unexpected(make_error(std::format("graph version not found: {} v{}", name, version)));
+    return tl::unexpected(make_error(std::format("graph version not found: {} v{}", name, version.to_string())));
   }
   auto& snapshot = snapshot_it->second;
   auto result = publish_locked(entry, snapshot, options);
@@ -179,7 +181,7 @@ auto GraphStore::resolve(std::string_view name) const -> std::shared_ptr<const P
   return std::atomic_load_explicit(&it->second.active, std::memory_order_acquire);
 }
 
-auto GraphStore::resolve(std::string_view name, int version) const -> std::shared_ptr<const PlanSnapshot> {
+auto GraphStore::resolve(std::string_view name, Version version) const -> std::shared_ptr<const PlanSnapshot> {
   std::shared_lock lock(mutex_);
   auto it = entries_.find(std::string(name));
   if (it == entries_.end()) {
@@ -192,7 +194,7 @@ auto GraphStore::resolve(std::string_view name, int version) const -> std::share
   return snapshot_it->second;
 }
 
-auto GraphStore::active_version(std::string_view name) const -> std::optional<int> {
+auto GraphStore::active_version(std::string_view name) const -> std::optional<Version> {
   auto snapshot = resolve(name);
   if (!snapshot) {
     return std::nullopt;
@@ -200,8 +202,8 @@ auto GraphStore::active_version(std::string_view name) const -> std::optional<in
   return snapshot->key.version;
 }
 
-auto GraphStore::list_versions(std::string_view name) const -> std::vector<int> {
-  std::vector<int> versions;
+auto GraphStore::list_versions(std::string_view name) const -> std::vector<Version> {
+  std::vector<Version> versions;
   std::shared_lock lock(mutex_);
   auto it = entries_.find(std::string(name));
   if (it == entries_.end()) {
@@ -215,14 +217,14 @@ auto GraphStore::list_versions(std::string_view name) const -> std::vector<int> 
   return versions;
 }
 
-auto GraphStore::evict(std::string_view name, int version) -> bool {
+auto GraphStore::evict(std::string_view name, Version version) -> bool {
   std::unique_lock lock(mutex_);
   auto it = entries_.find(std::string(name));
   if (it == entries_.end()) {
     return false;
   }
   auto& entry = it->second;
-  if (entry.active_version == version) {
+  if (entry.active_version && *entry.active_version == version) {
     return false;
   }
   auto erased = entry.versions.erase(version);
@@ -234,11 +236,11 @@ auto GraphStore::evict(std::string_view name, int version) -> bool {
 
 auto GraphStore::publish_locked(Entry& entry, const std::shared_ptr<const PlanSnapshot>& snapshot, PublishOptions options)
   -> Expected<void> {
-  const int next_version = snapshot->key.version;
+  const Version& next_version = snapshot->key.version;
   bool allow_rollback = config_.allow_rollback && options.allow_rollback;
-  if (!allow_rollback && entry.active_version >= 0 && next_version < entry.active_version) {
-    return tl::unexpected(make_error(std::format("rollback disabled: active v{} > v{}", entry.active_version,
-                                                 next_version)));
+  if (!allow_rollback && entry.active_version && next_version < *entry.active_version) {
+    return tl::unexpected(make_error(std::format("rollback disabled: active v{} > v{}", entry.active_version->to_string(),
+                                                 next_version.to_string())));
   }
   entry.active_version = next_version;
   std::atomic_store_explicit(&entry.active, snapshot, std::memory_order_release);
@@ -252,17 +254,17 @@ auto GraphStore::enforce_retention(Entry& entry) -> void {
   if (entry.versions.size() <= config_.max_versions) {
     return;
   }
-  std::vector<int> versions;
+  std::vector<Version> versions;
   versions.reserve(entry.versions.size());
   for (const auto& [version, _] : entry.versions) {
     versions.push_back(version);
   }
   std::sort(versions.begin(), versions.end());
-  for (int version : versions) {
+  for (const auto& version : versions) {
     if (entry.versions.size() <= config_.max_versions) {
       break;
     }
-    if (version == entry.active_version) {
+    if (entry.active_version && version == *entry.active_version) {
       continue;
     }
     entry.versions.erase(version);

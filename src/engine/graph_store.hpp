@@ -13,13 +13,14 @@
 #include "engine/error.hpp"
 #include "engine/plan.hpp"
 #include "engine/registry.hpp"
+#include "engine/version.hpp"
 
 namespace sr::engine {
 
 /// Unique graph identifier (name + version).
 struct GraphKey {
   std::string name;
-  int version = 0;
+  Version version{};
 };
 
 /// Immutable compiled plan snapshot stored in the graph store.
@@ -71,27 +72,27 @@ public:
              const StageOptions &options = {})
       -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Publish a stored version as the active one.
-  auto publish(std::string_view name, int version, PublishOptions options = {})
+  auto publish(std::string_view name, Version version, PublishOptions options = {})
       -> Expected<std::shared_ptr<const PlanSnapshot>>;
 
   /// Resolve the active version snapshot by name.
   auto resolve(std::string_view name) const
       -> std::shared_ptr<const PlanSnapshot>;
   /// Resolve a specific stored version by name.
-  auto resolve(std::string_view name, int version) const
+  auto resolve(std::string_view name, Version version) const
       -> std::shared_ptr<const PlanSnapshot>;
   /// Return the active version number (if any).
-  auto active_version(std::string_view name) const -> std::optional<int>;
+  auto active_version(std::string_view name) const -> std::optional<Version>;
   /// List all stored versions for a graph name.
-  auto list_versions(std::string_view name) const -> std::vector<int>;
+  auto list_versions(std::string_view name) const -> std::vector<Version>;
   /// Remove a non-active version from the store.
-  auto evict(std::string_view name, int version) -> bool;
+  auto evict(std::string_view name, Version version) -> bool;
 
 private:
   struct Entry {
-    std::unordered_map<int, std::shared_ptr<const PlanSnapshot>> versions;
+    std::unordered_map<Version, std::shared_ptr<const PlanSnapshot>> versions;
     std::shared_ptr<const PlanSnapshot> active;
-    int active_version = -1;
+    std::optional<Version> active_version;
   };
 
   auto publish_locked(Entry &entry,

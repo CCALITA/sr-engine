@@ -28,6 +28,7 @@ add_library(sr_engine
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
+  src/engine/type_system.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
   src/runtime/serve/serve.cpp
@@ -118,6 +119,15 @@ if (SR_ENGINE_ENABLE_ARROW_FLIGHT)
 endif()
 
 find_package(benchmark REQUIRED)
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+# Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
 
 add_executable(sr_engine_benchmarks
   benchmarks/serve_benchmark.cpp
@@ -146,3 +156,9 @@ if (TARGET absl::log)
 endif()
 
 add_test(NAME sr_engine_tests COMMAND sr_engine_tests)
+
+add_executable(type_system_test
+  tests/type_system_test.cpp
+)
+target_link_libraries(type_system_test PRIVATE sr_engine GTest::gtest_main)
+add_test(NAME type_system_test COMMAND type_system_test)

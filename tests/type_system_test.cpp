@@ -1,4 +1,5 @@
 #include "engine/type_system.hpp"
+#include "engine/type_abi.h"
 #include <gtest/gtest.h>
 
 TEST(TypeSystem, StableTypeIdForPrimitive) {
@@ -30,4 +31,18 @@ TEST(TypeSystem, ArrowSchemaStableId) {
   auto schema = registry->intern_arrow_schema(fields);
   auto schema2 = registry->intern_arrow_schema(fields);
   ASSERT_EQ(schema, schema2);
+}
+
+TEST(TypeSystem, PluginTypeStableId) {
+  auto registry = sr::engine::TypeRegistry::create();
+  sr_type_descriptor desc{
+    .kind = SR_TYPE_PLUGIN,
+    .name = "my.plugin.type",
+    .version = 1,
+    .layout_size = 64,
+    .layout_align = 8,
+  };
+  auto id1 = registry->intern_plugin(desc);
+  auto id2 = registry->intern_plugin(desc);
+  ASSERT_EQ(id1, id2);
 }

@@ -97,6 +97,25 @@ public:
         return id;
     }
 
+    auto intern_plugin(const sr_type_descriptor& desc) -> TypeId override {
+        std::stringstream ss;
+        ss << "plugin:" << desc.kind << ":" << desc.name << ":" << desc.version 
+           << ":" << desc.layout_size << ":" << desc.layout_align;
+        
+        std::string key = ss.str();
+        auto fp = hash_canonical("plugin", key);
+        auto id = truncate64(fp);
+        
+        if (id_map_.find(id) == id_map_.end()) {
+            TypeInfo info;
+            info.name = key;
+            info.id = id;
+            info.fp = fp;
+            id_map_[id] = std::move(info);
+        }
+        return id;
+    }
+
     auto lookup(TypeId id) const -> const TypeInfo * override {
         auto it = id_map_.find(id);
         if (it != id_map_.end()) {

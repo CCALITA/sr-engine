@@ -7,6 +7,8 @@
 #include <string>
 #include <string_view>
 
+#include "engine/type_abi.h"
+
 namespace sr::engine {
 
 using TypeId = std::uint64_t;
@@ -44,6 +46,7 @@ public:
                                std::span<const TypeId> outputs,
                                FunctionAttrs attrs) -> TypeId = 0;
   virtual auto intern_arrow_schema(std::span<const ArrowField> fields) -> TypeId = 0;
+  virtual auto intern_plugin(const sr_type_descriptor& desc) -> TypeId = 0;
   virtual auto lookup(TypeId id) const -> const TypeInfo * = 0;
 };
 

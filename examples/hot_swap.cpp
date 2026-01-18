@@ -25,6 +25,7 @@
 #define SR_HAVE_IO_URING 0
 #endif
 
+#include "engine/type_names.hpp"
 #include "engine/types.hpp"
 #include "kernel/sample_kernels.hpp"
 #include "runtime/runtime.hpp"
@@ -197,22 +198,22 @@ auto apply_env(sr::engine::RequestContext& ctx, const std::vector<EnvBinding>& e
 
 // Prints basic output values for the demo.
 auto print_outputs(const sr::engine::ExecResult& result) -> void {
-  auto int_type = entt::resolve<int64_t>();
-  auto double_type = entt::resolve<double>();
-  auto bool_type = entt::resolve<bool>();
-  auto string_type = entt::resolve<std::string>();
+  const auto int_type = sr::engine::TypeName<int64_t>::id();
+  const auto double_type = sr::engine::TypeName<double>::id();
+  const auto bool_type = sr::engine::TypeName<bool>::id();
+  const auto string_type = sr::engine::TypeName<std::string>::id();
   for (const auto& [name, slot] : result.outputs) {
     if (!slot.has_value()) {
       std::cout << std::format("{}=<missing>\n", name);
       continue;
     }
-    if (slot.type == int_type) {
+    if (slot.type_id == int_type) {
       std::cout << std::format("{}={}\n", name, slot.get<int64_t>());
-    } else if (slot.type == double_type) {
+    } else if (slot.type_id == double_type) {
       std::cout << std::format("{}={}\n", name, slot.get<double>());
-    } else if (slot.type == bool_type) {
+    } else if (slot.type_id == bool_type) {
       std::cout << std::format("{}={}\n", name, slot.get<bool>());
-    } else if (slot.type == string_type) {
+    } else if (slot.type_id == string_type) {
       std::cout << std::format("{}={}\n", name, slot.get<std::string>());
     } else {
       std::cout << std::format("{}=<opaque>\n", name);
@@ -229,9 +230,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  static sr::engine::TypeRegistry type_registry;
   sr::engine::Runtime runtime;
-  sr::kernel::register_builtin_types(type_registry);
   sr::kernel::register_sample_kernels(runtime.registry());
 
   sr::engine::StageOptions stage_options;

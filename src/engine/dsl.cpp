@@ -153,10 +153,17 @@ auto parse_graph_json(const Json& json) -> Expected<GraphDef> {
 
   GraphDef graph;
   if (auto it = json.find("version"); it != json.end()) {
-    if (!it->is_number_integer()) {
-      return tl::unexpected(make_error("version must be an integer"));
+    if (it->is_string()) {
+      auto v = Version::parse(it->get<std::string>());
+      if (!v) {
+        return tl::unexpected(v.error());
+      }
+      graph.version = *v;
+    } else if (it->is_number_integer()) {
+      graph.version = Version{it->get<int>(), 0, 0};
+    } else {
+      return tl::unexpected(make_error("version must be a string or integer"));
     }
-    graph.version = it->get<int>();
   }
   if (auto it = json.find("name"); it != json.end()) {
     if (!it->is_string()) {

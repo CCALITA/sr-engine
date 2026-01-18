@@ -1,0 +1,29 @@
+[2026-01-18 23:04:00.915] [info] Logger initialized: file=sr_engine.log, level=info
+[2026-01-18 23:04:00.915] [info] Initializing sr-engine runtime
+[2026-01-18 23:04:00.915] [info] Runtime initialized without graph daemon
+[2026-01-18 23:04:00.915] [info] Parsing graph JSON
+[2026-01-18 23:04:00.915] [info] Parsed graph completed
+[2026-01-18 23:04:00.915] [info] Parsing graph JSON
+[2026-01-18 23:04:00.915] [info] Parsed graph completed
+[2026-01-18 23:04:00.916] [info] Initializing sr-engine runtime
+[2026-01-18 23:04:00.916] [info] Runtime initialized without graph daemon
+[2026-01-18 23:04:00.916] [info] Parsing graph JSON
+[2026-01-18 23:04:00.916] [info] Parsed graph completed
+[2026-01-18 23:04:00.916] [info] Parsing graph JSON
+[2026-01-18 23:04:00.916] [info] Parsed graph completed
+[2026-01-18 23:04:00.920] [info] Initializing sr-engine runtime
+[2026-01-18 23:04:00.920] [info] Starting graph daemon watching '/var/folders/6m/q24y3xgx3dnd8t6dfj5_qhjr0000gn/T/sr_engine_daemon_675220078068125'
+[2026-01-18 23:04:00.946] [info] Parsing graph JSON
+[2026-01-18 23:04:00.946] [info] Parsed graph completed
+[2026-01-18 23:04:00.976] [info] Parsing graph JSON
+[2026-01-18 23:04:00.976] [info] Parsed graph completed
+[2026-01-18 23:04:01.004] [info] Parsing graph JSON
+[2026-01-18 23:04:01.004] [info] Parsed graph completed
+[2026-01-18 23:04:01.004] [info] Parsing graph JSON
+[2026-01-18 23:04:01.004] [info] Parsed graph completed
+[2026-01-18 23:04:01.004] [info] Parsing graph JSON
+[2026-01-18 23:04:01.004] [info] Parsed graph completed
+[2026-01-18 23:04:01.004] [info] Parsing graph JSON
+[2026-01-18 23:04:01.004] [info] Parsed graph completed
+[2026-01-18 23:04:01.004] [info] Parsing graph JSON
+[2026-01-18 23:04:01.004] [info] Parsed graph completed

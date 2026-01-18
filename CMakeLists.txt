@@ -28,6 +28,7 @@ add_library(sr_engine
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
+  src/engine/version.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
   src/runtime/serve/serve.cpp

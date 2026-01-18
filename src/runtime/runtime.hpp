@@ -15,6 +15,7 @@
 #include "engine/error.hpp"
 #include "engine/graph_store.hpp"
 #include "engine/registry.hpp"
+#include "engine/version.hpp"
 #include "runtime/executor.hpp"
 #include "runtime/serve.hpp"
 
@@ -66,26 +67,26 @@ public:
       -> Expected<std::shared_ptr<const PlanSnapshot>>;
 
   /// Publish a specific graph version as active.
-  auto publish(std::string_view name, int version, PublishOptions options = {})
+  auto publish(std::string_view name, Version version, PublishOptions options = {})
       -> Expected<std::shared_ptr<const PlanSnapshot>>;
   /// Resolve the active snapshot for a graph name.
   auto resolve(std::string_view name) const
       -> std::shared_ptr<const PlanSnapshot>;
   /// Resolve a specific graph snapshot version.
-  auto resolve(std::string_view name, int version) const
+  auto resolve(std::string_view name, Version version) const
       -> std::shared_ptr<const PlanSnapshot>;
   /// Return the active version number for a graph name (if any).
-  auto active_version(std::string_view name) const -> std::optional<int>;
+  auto active_version(std::string_view name) const -> std::optional<Version>;
   /// List all stored versions for a graph name.
-  auto list_versions(std::string_view name) const -> std::vector<int>;
+  auto list_versions(std::string_view name) const -> std::vector<Version>;
   /// Remove a non-active version from the store.
-  auto evict(std::string_view name, int version) -> bool;
+  auto evict(std::string_view name, Version version) -> bool;
 
   /// Execute the active graph version by name.
   auto run(std::string_view name, RequestContext &ctx) const
       -> Expected<ExecResult>;
   /// Execute a specific graph version by name.
-  auto run(std::string_view name, int version, RequestContext &ctx) const
+  auto run(std::string_view name, Version version, RequestContext &ctx) const
       -> Expected<ExecResult>;
   /// Execute a previously staged snapshot.
   auto run(const std::shared_ptr<const PlanSnapshot> &snapshot,

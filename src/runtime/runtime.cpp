@@ -265,7 +265,7 @@ auto Runtime::stage_file(std::string_view path, const StageOptions &options)
   return stage_dsl(buffer.str(), options);
 }
 
-auto Runtime::publish(std::string_view name, int version,
+auto Runtime::publish(std::string_view name, Version version,
                       PublishOptions options)
     -> Expected<std::shared_ptr<const PlanSnapshot>> {
   return store_.publish(name, version, options);
@@ -276,21 +276,21 @@ auto Runtime::resolve(std::string_view name) const
   return store_.resolve(name);
 }
 
-auto Runtime::resolve(std::string_view name, int version) const
+auto Runtime::resolve(std::string_view name, Version version) const
     -> std::shared_ptr<const PlanSnapshot> {
   return store_.resolve(name, version);
 }
 
 auto Runtime::active_version(std::string_view name) const
-    -> std::optional<int> {
+    -> std::optional<Version> {
   return store_.active_version(name);
 }
 
-auto Runtime::list_versions(std::string_view name) const -> std::vector<int> {
+auto Runtime::list_versions(std::string_view name) const -> std::vector<Version> {
   return store_.list_versions(name);
 }
 
-auto Runtime::evict(std::string_view name, int version) -> bool {
+auto Runtime::evict(std::string_view name, Version version) -> bool {
   return store_.evict(name, version);
 }
 
@@ -308,12 +308,12 @@ auto Runtime::run(std::string_view name, RequestContext &ctx) const
   return run(snapshot, ctx);
 }
 
-auto Runtime::run(std::string_view name, int version, RequestContext &ctx) const
+auto Runtime::run(std::string_view name, Version version, RequestContext &ctx) const
     -> Expected<ExecResult> {
   auto snapshot = store_.resolve(name, version);
   if (!snapshot) {
     return tl::unexpected(make_error(
-        std::format("graph version not found: {} v{}", name, version)));
+        std::format("graph version not found: {} v{}", name, version.to_string())));
   }
   return run(snapshot, ctx);
 }

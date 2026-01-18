@@ -4,7 +4,7 @@
 Support multiple DSL graphs compiled into immutable plan snapshots, with versioned updates and safe hot‑swap. Reads should be fast and lock‑free on the active plan; updates must not interrupt in‑flight runs.
 
 ## Core Objects
-- `GraphKey { name, version }`
+- `GraphKey { name, version }` where `version` is a Semantic Version (e.g., 1.0.1).
 - `PlanSnapshot { GraphKey key, ExecPlan plan, hash, metadata }`
 - `GraphStore` maps graph name → versioned snapshots and tracks an active version.
 
@@ -13,6 +13,7 @@ Support multiple DSL graphs compiled into immutable plan snapshots, with version
 - **Versioned updates**: `publish(name, version)` flips the active snapshot.
 - **Safe rollback**: publishing an older version is allowed if configured.
 - **Conflict rules**: same `name+version` with different hash is rejected unless forced.
+- **Semantic Versioning**: version strings are parsed as SemVer (major.minor.patch) and sorted accordingly (1.2 < 1.10).
 
 ## Concurrency Model
 - Active snapshot is stored with atomic load/store on `shared_ptr`.

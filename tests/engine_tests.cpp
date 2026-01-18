@@ -32,6 +32,7 @@ auto test_env_type_mismatch() -> bool;
 auto test_plan_slot_uses_typeid() -> bool;
 auto test_valuebox_inline_storage() -> bool;
 auto test_dynamic_port_names() -> bool;
+auto test_kernel_signature_uses_typeid() -> bool;
 
 namespace {
 
@@ -101,6 +102,38 @@ auto test_valuebox_inline_storage() -> bool {
   return box.get<bool>();
 }
 
+auto test_kernel_signature_uses_typeid() -> bool {
+  struct Widget {};
+
+  sr::engine::KernelRegistry registry;
+  sr::engine::register_type<Widget>(*registry.type_registry(), "widget");
+  registry.register_kernel("widget_echo",
+                           [](Widget value) noexcept { return value; });
+
+  auto factory = registry.find("widget_echo");
+  if (!factory) {
+    return false;
+  }
+
+  auto spec = (*factory)(sr::engine::Json::object());
+  if (!spec) {
+    return false;
+  }
+
+  if (spec->signature.inputs.size() != 1 ||
+      spec->signature.outputs.size() != 1) {
+    return false;
+  }
+
+  const auto expected = sr::engine::TypeName<Widget>::id();
+  if (expected == sr::engine::TypeId{}) {
+    return false;
+  }
+
+  return spec->signature.inputs[0].type_id == expected &&
+         spec->signature.outputs[0].type_id == expected;
+}
+
 int main() {
   static sr::engine::TypeRegistry type_registry;
   sr::kernel::register_builtin_types(type_registry);
@@ -124,6 +157,8 @@ int main() {
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
   run_test("plan_slot_uses_typeid", test_plan_slot_uses_typeid, stats);
   run_test("valuebox_inline_storage", test_valuebox_inline_storage, stats);
+  run_test("kernel_signature_uses_typeid", test_kernel_signature_uses_typeid,
+           stats);
   run_test("dynamic_port_names", test_dynamic_port_names, stats);
   run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names,
            stats);

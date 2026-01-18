@@ -13,6 +13,7 @@
 
 #include "engine/kernel_adapt.hpp"
 #include "engine/kernel_types.hpp"
+#include "engine/type_system.hpp"
 
 namespace sr::engine {
 
@@ -28,9 +29,11 @@ namespace detail {
 template <typename Fn>
 auto make_kernel_spec_from_fn(Fn fn,
                               const std::vector<std::string> &input_names,
-                              const std::vector<std::string> &output_names)
+                              const std::vector<std::string> &output_names,
+                              const std::shared_ptr<TypeRegistry> &type_registry)
     -> Expected<KernelSpec> {
-  auto signature_result = build_signature<Fn>(input_names, output_names);
+  auto signature_result =
+      build_signature<Fn>(input_names, output_names, type_registry);
   if (!signature_result) {
     return tl::unexpected(signature_result.error());
   }
@@ -45,6 +48,13 @@ auto make_kernel_spec_from_fn(Fn fn,
 /// Registry of kernel factories used during graph compilation.
 class KernelRegistry {
 public:
+  KernelRegistry() : type_registry_(TypeRegistry::create()) {}
+  explicit KernelRegistry(std::shared_ptr<TypeRegistry> type_registry)
+      : type_registry_(std::move(type_registry)) {
+    if (!type_registry_) {
+      throw std::invalid_argument("type_registry must not be null");
+    }
+  }
   /// Factory returns a fully bound kernel spec from JSON params.
   class Factory {
   public:
@@ -72,11 +82,16 @@ public:
     InvokeFn invoke_ = nullptr;
   };
 
-  KernelRegistry() = default;
   KernelRegistry(const KernelRegistry &) = delete;
   auto operator=(const KernelRegistry &) -> KernelRegistry & = delete;
   KernelRegistry(KernelRegistry &&other) noexcept;
   auto operator=(KernelRegistry &&other) noexcept -> KernelRegistry &;
+
+
+  /// Shared registry for kernel signature type ids.
+  auto type_registry() const -> const std::shared_ptr<TypeRegistry> & {
+    return type_registry_;
+  }
 
   /// Register a raw factory for a kernel name.
   auto register_factory(std::string name, Factory factory) -> void;
@@ -88,8 +103,8 @@ public:
                        std::uint32_t estimated_cost_us = 0) -> void {
     auto inputs = std::vector<std::string>{};
     auto outputs = std::vector<std::string>{};
-    auto spec =
-        detail::make_kernel_spec_from_fn(std::move(fn), inputs, outputs);
+    auto spec = detail::make_kernel_spec_from_fn(
+        std::move(fn), inputs, outputs, type_registry_);
     if (spec) {
       spec->handle.traits = traits;
       spec->handle.estimated_cost_us = estimated_cost_us;
@@ -108,29 +123,33 @@ public:
   auto register_kernel_with_params(std::string name, Factory factory) -> void {
     auto inputs = std::vector<std::string>{};
     auto outputs = std::vector<std::string>{};
-    register_factory(std::move(name),
-                     [factory = std::move(factory), inputs = std::move(inputs),
-                      outputs = std::move(outputs)](
-                         const Json &params) mutable -> Expected<KernelSpec> {
-                       using FactoryResult = decltype(factory(params));
-                       if constexpr (detail::is_expected_v<FactoryResult>) {
-                         auto fn_result = factory(params);
-                         if (!fn_result) {
-                           return tl::unexpected(fn_result.error());
-                         }
-                         return detail::make_kernel_spec_from_fn(
-                             std::move(*fn_result), inputs, outputs);
-                       } else {
-                         auto fn = factory(params);
-                         return detail::make_kernel_spec_from_fn(
-                             std::move(fn), inputs, outputs);
-                       }
-                     });
+    auto type_registry = type_registry_;
+    register_factory(
+        std::move(name),
+        [factory = std::move(factory), inputs = std::move(inputs),
+         outputs = std::move(outputs), type_registry = std::move(type_registry)](
+            const Json &params) mutable -> Expected<KernelSpec> {
+          using FactoryResult = decltype(factory(params));
+          if constexpr (detail::is_expected_v<FactoryResult>) {
+            auto fn_result = factory(params);
+            if (!fn_result) {
+              return tl::unexpected(fn_result.error());
+            }
+            return detail::make_kernel_spec_from_fn(
+                std::move(*fn_result), inputs, outputs, type_registry);
+          } else {
+            auto fn = factory(params);
+            return detail::make_kernel_spec_from_fn(
+                std::move(fn), inputs, outputs, type_registry);
+          }
+        });
   }
   /// Lookup a factory by kernel name (nullptr when missing).
   auto find(std::string_view name) const -> std::shared_ptr<const Factory>;
 
+
 private:
+  std::shared_ptr<TypeRegistry> type_registry_;
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<Factory>> factories_;
 };

@@ -397,10 +397,14 @@ auto invoke_kernel(Fn &fn, RequestContext &ctx, const InputValues &inputs,
 }
 
 template <typename Arg>
-auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
+auto append_input(std::vector<PortDesc> &inputs, std::string_view name,
+                  const std::shared_ptr<TypeRegistry> &type_registry)
     -> Expected<void> {
   using traits = input_arg_traits<Arg>;
   using port_type = typename traits::port_type;
+  if (!type_registry) {
+    return tl::unexpected(make_error("kernel registry missing type registry"));
+  }
   const auto type_id = TypeName<port_type>::id();
   if (type_id == TypeId{}) {
     return tl::unexpected(
@@ -415,9 +419,13 @@ auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
 }
 
 template <typename Arg>
-auto append_output(std::vector<PortDesc> &outputs, std::string_view name)
+auto append_output(std::vector<PortDesc> &outputs, std::string_view name,
+                   const std::shared_ptr<TypeRegistry> &type_registry)
     -> Expected<void> {
   using port_type = output_port_type_t<Arg>;
+  if (!type_registry) {
+    return tl::unexpected(make_error("kernel registry missing type registry"));
+  }
   const auto type_id = TypeName<port_type>::id();
   if (type_id == TypeId{}) {
     return tl::unexpected(
@@ -443,11 +451,13 @@ auto for_each_index(Fn &&fn, std::index_sequence<I...>) -> Expected<void> {
 
 template <typename Tuple>
 auto append_inputs(std::vector<PortDesc> &inputs,
-                   const std::vector<std::string> &names) -> Expected<void> {
-  auto add = [&inputs, &names](auto index_c) -> Expected<void> {
+                   const std::vector<std::string> &names,
+                   const std::shared_ptr<TypeRegistry> &type_registry)
+    -> Expected<void> {
+  auto add = [&inputs, &names, &type_registry](auto index_c) -> Expected<void> {
     constexpr std::size_t index = decltype(index_c)::value;
-    return append_input<std::tuple_element_t<index, Tuple>>(inputs,
-                                                            names[index]);
+    return append_input<std::tuple_element_t<index, Tuple>>(inputs, names[index],
+                                                            type_registry);
   };
   return for_each_index<Tuple>(
       add, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
@@ -455,11 +465,14 @@ auto append_inputs(std::vector<PortDesc> &inputs,
 
 template <typename Tuple>
 auto append_outputs(std::vector<PortDesc> &outputs,
-                    const std::vector<std::string> &names) -> Expected<void> {
-  auto add = [&outputs, &names](auto index_c) -> Expected<void> {
+                    const std::vector<std::string> &names,
+                    const std::shared_ptr<TypeRegistry> &type_registry)
+    -> Expected<void> {
+  auto add =
+      [&outputs, &names, &type_registry](auto index_c) -> Expected<void> {
     constexpr std::size_t index = decltype(index_c)::value;
-    return append_output<std::tuple_element_t<index, Tuple>>(outputs,
-                                                             names[index]);
+    return append_output<std::tuple_element_t<index, Tuple>>(
+        outputs, names[index], type_registry);
   };
   return for_each_index<Tuple>(
       add, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
@@ -467,7 +480,8 @@ auto append_outputs(std::vector<PortDesc> &outputs,
 
 template <typename Fn>
 auto build_signature(const std::vector<std::string> &input_names,
-                     const std::vector<std::string> &output_names)
+                     const std::vector<std::string> &output_names,
+                     const std::shared_ptr<TypeRegistry> &type_registry)
     -> Expected<Signature> {
   using traits = kernel_traits<Fn>;
   using input_tuple = typename traits::input_tuple;
@@ -495,14 +509,14 @@ auto build_signature(const std::vector<std::string> &input_names,
   signature.inputs.reserve(input_count);
   signature.outputs.reserve(output_count);
 
-  auto input_result =
-      append_inputs<input_tuple>(signature.inputs, resolved_inputs);
+  auto input_result = append_inputs<input_tuple>(
+      signature.inputs, resolved_inputs, type_registry);
   if (!input_result) {
     return tl::unexpected(input_result.error());
   }
 
-  auto output_result =
-      append_outputs<output_tuple>(signature.outputs, resolved_outputs);
+  auto output_result = append_outputs<output_tuple>(
+      signature.outputs, resolved_outputs, type_registry);
   if (!output_result) {
     return tl::unexpected(output_result.error());
   }

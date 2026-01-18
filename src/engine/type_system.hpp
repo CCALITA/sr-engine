@@ -29,6 +29,12 @@ public:
     bool has_ctx = false;
   };
 
+  struct ArrowField {
+    std::string name;
+    TypeId type;
+    bool nullable;
+  };
+
   static auto create() -> std::shared_ptr<TypeRegistry>;
 
   virtual ~TypeRegistry() = default;
@@ -37,6 +43,7 @@ public:
   virtual auto intern_function(std::span<const TypeId> inputs,
                                std::span<const TypeId> outputs,
                                FunctionAttrs attrs) -> TypeId = 0;
+  virtual auto intern_arrow_schema(std::span<const ArrowField> fields) -> TypeId = 0;
   virtual auto lookup(TypeId id) const -> const TypeInfo * = 0;
 };
 

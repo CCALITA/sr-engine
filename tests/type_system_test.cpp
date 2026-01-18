@@ -20,3 +20,14 @@ TEST(TypeSystem, FunctionTypeStableId) {
   auto fn2 = registry->intern_function(inputs, outputs, {.noexcept_ = true});
   ASSERT_EQ(fn, fn2);
 }
+
+TEST(TypeSystem, ArrowSchemaStableId) {
+  auto registry = sr::engine::TypeRegistry::create();
+  auto i64 = registry->intern_primitive("i64");
+  sr::engine::TypeRegistry::ArrowField id{"id", i64, false};
+  sr::engine::TypeRegistry::ArrowField score{"score", i64, true};
+  std::vector<sr::engine::TypeRegistry::ArrowField> fields = {id, score};
+  auto schema = registry->intern_arrow_schema(fields);
+  auto schema2 = registry->intern_arrow_schema(fields);
+  ASSERT_EQ(schema, schema2);
+}

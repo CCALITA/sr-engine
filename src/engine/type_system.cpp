@@ -75,6 +75,28 @@ public:
         return id;
     }
 
+    auto intern_arrow_schema(std::span<const TypeRegistry::ArrowField> fields) -> TypeId override {
+        std::stringstream ss;
+        ss << "arrow_schema:" << fields.size() << ":[";
+        for (const auto& field : fields) {
+            ss << "{" << field.name << "," << field.type << "," << field.nullable << "}";
+        }
+        ss << "]";
+        
+        std::string key = ss.str();
+        auto fp = hash_canonical("arrow", key);
+        auto id = truncate64(fp);
+        
+        if (id_map_.find(id) == id_map_.end()) {
+            TypeInfo info;
+            info.name = key;
+            info.id = id;
+            info.fp = fp;
+            id_map_[id] = std::move(info);
+        }
+        return id;
+    }
+
     auto lookup(TypeId id) const -> const TypeInfo * override {
         auto it = id_map_.find(id);
         if (it != id_map_.end()) {

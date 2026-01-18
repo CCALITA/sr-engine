@@ -1,5 +1,8 @@
 #include "test_support.hpp"
 
+#include <memory>
+#include <variant>
+
 /// Execute a single test and update the stats counters.
 auto run_test(const char *name, const std::function<bool()> &test,
               TestStats &stats) -> void {
@@ -27,6 +30,7 @@ auto test_cycle_detection() -> bool;
 auto test_duplicate_output_name() -> bool;
 auto test_env_type_mismatch() -> bool;
 auto test_plan_slot_uses_typeid() -> bool;
+auto test_valuebox_inline_storage() -> bool;
 auto test_dynamic_port_names() -> bool;
 
 namespace {
@@ -81,6 +85,22 @@ auto test_plan_slot_uses_typeid() -> bool {
   return true;
 }
 
+auto test_valuebox_inline_storage() -> bool {
+  sr::engine::ValueBox box;
+  box.set<int64_t>(42);
+  if (std::holds_alternative<std::shared_ptr<void>>(box.storage)) {
+    return false;
+  }
+  if (box.get<int64_t>() != 42) {
+    return false;
+  }
+  box.set<bool>(true);
+  if (std::holds_alternative<std::shared_ptr<void>>(box.storage)) {
+    return false;
+  }
+  return box.get<bool>();
+}
+
 int main() {
   static sr::engine::TypeRegistry type_registry;
   sr::kernel::register_builtin_types(type_registry);
@@ -103,6 +123,7 @@ int main() {
   run_test("duplicate_output_name", test_duplicate_output_name, stats);
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
   run_test("plan_slot_uses_typeid", test_plan_slot_uses_typeid, stats);
+  run_test("valuebox_inline_storage", test_valuebox_inline_storage, stats);
   run_test("dynamic_port_names", test_dynamic_port_names, stats);
   run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names,
            stats);

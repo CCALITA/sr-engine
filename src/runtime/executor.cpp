@@ -26,7 +26,7 @@ auto reset_slots(const ExecPlan &plan, std::vector<ValueBox> &slots) -> void {
   slots.resize(plan.slots.size());
   for (std::size_t i = 0; i < plan.slots.size(); ++i) {
     slots[i].type_id = plan.slots[i].type_id;
-    slots[i].storage.reset();
+    slots[i].storage = ValueBox::InlineStorage{};
   }
 }
 

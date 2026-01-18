@@ -47,6 +47,7 @@ public:
                                FunctionAttrs attrs) -> TypeId = 0;
   virtual auto intern_arrow_schema(std::span<const ArrowField> fields) -> TypeId = 0;
   virtual auto intern_plugin(const sr_type_descriptor& desc) -> TypeId = 0;
+  virtual auto intern_with_forced_id(std::string_view name, TypeId id) -> TypeId = 0;
   virtual auto lookup(TypeId id) const -> const TypeInfo * = 0;
 };
 

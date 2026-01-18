@@ -32,18 +32,29 @@ auto truncate64(const TypeFingerprint& fp) -> TypeId {
 
 class TypeRegistryImpl : public TypeRegistry {
 public:
+    auto intern_impl(std::string key, TypeFingerprint fp, TypeId id) -> TypeId {
+        while (true) {
+            auto it = id_map_.find(id);
+            if (it == id_map_.end()) {
+                TypeInfo info;
+                info.name = std::move(key);
+                info.id = id;
+                info.fp = fp;
+                id_map_[id] = std::move(info);
+                return id;
+            }
+            if (it->second.name == key) {
+                return id;
+            }
+            // Collision detected, probe next
+            id++;
+        }
+    }
+
     auto intern_primitive(std::string_view name) -> TypeId override {
         auto fp = hash_canonical("prim", name);
         auto id = truncate64(fp);
-        
-        if (id_map_.find(id) == id_map_.end()) {
-            TypeInfo info;
-            info.name = std::string(name);
-            info.id = id;
-            info.fp = fp;
-            id_map_[id] = std::move(info);
-        }
-        return id;
+        return intern_impl(std::string(name), fp, id);
     }
 
     auto intern_function(std::span<const TypeId> inputs,
@@ -64,15 +75,7 @@ public:
         std::string key = ss.str();
         auto fp = hash_canonical("func", key);
         auto id = truncate64(fp);
-        
-        if (id_map_.find(id) == id_map_.end()) {
-            TypeInfo info;
-            info.name = key;
-            info.id = id;
-            info.fp = fp;
-            id_map_[id] = std::move(info);
-        }
-        return id;
+        return intern_impl(std::move(key), fp, id);
     }
 
     auto intern_arrow_schema(std::span<const TypeRegistry::ArrowField> fields) -> TypeId override {
@@ -86,15 +89,7 @@ public:
         std::string key = ss.str();
         auto fp = hash_canonical("arrow", key);
         auto id = truncate64(fp);
-        
-        if (id_map_.find(id) == id_map_.end()) {
-            TypeInfo info;
-            info.name = key;
-            info.id = id;
-            info.fp = fp;
-            id_map_[id] = std::move(info);
-        }
-        return id;
+        return intern_impl(std::move(key), fp, id);
     }
 
     auto intern_plugin(const sr_type_descriptor& desc) -> TypeId override {
@@ -105,15 +100,12 @@ public:
         std::string key = ss.str();
         auto fp = hash_canonical("plugin", key);
         auto id = truncate64(fp);
-        
-        if (id_map_.find(id) == id_map_.end()) {
-            TypeInfo info;
-            info.name = key;
-            info.id = id;
-            info.fp = fp;
-            id_map_[id] = std::move(info);
-        }
-        return id;
+        return intern_impl(std::move(key), fp, id);
+    }
+
+    auto intern_with_forced_id(std::string_view name, TypeId id) -> TypeId override {
+        auto fp = hash_canonical("forced", name);
+        return intern_impl(std::string(name), fp, id);
     }
 
     auto lookup(TypeId id) const -> const TypeInfo * override {

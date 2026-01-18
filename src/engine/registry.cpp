@@ -2,9 +2,13 @@
 
 namespace sr::engine {
 
+KernelRegistry::KernelRegistry(std::shared_ptr<TypeRegistry> type_registry)
+    : type_registry_(std::move(type_registry)) {}
+
 KernelRegistry::KernelRegistry(KernelRegistry &&other) noexcept {
   std::unique_lock<std::shared_mutex> lock(other.mutex_);
   factories_ = std::move(other.factories_);
+  type_registry_ = std::move(other.type_registry_);
 }
 
 auto KernelRegistry::operator=(KernelRegistry &&other) noexcept
@@ -14,6 +18,7 @@ auto KernelRegistry::operator=(KernelRegistry &&other) noexcept
   }
   std::scoped_lock lock(mutex_, other.mutex_);
   factories_ = std::move(other.factories_);
+  type_registry_ = std::move(other.type_registry_);
   return *this;
 }
 

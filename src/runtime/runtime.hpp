@@ -111,6 +111,7 @@ private:
 
   mutable exec::static_thread_pool thread_pool_;
   mutable exec::static_thread_pool serve_pool_;
+  std::shared_ptr<TypeRegistry> type_registry_;
   KernelRegistry registry_;
   GraphStore store_;
   Executor executor_;

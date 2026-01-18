@@ -13,6 +13,7 @@
 
 #include "engine/kernel_adapt.hpp"
 #include "engine/kernel_types.hpp"
+#include "engine/type_system.hpp"
 
 namespace sr::engine {
 
@@ -28,9 +29,10 @@ namespace detail {
 template <typename Fn>
 auto make_kernel_spec_from_fn(Fn fn,
                               const std::vector<std::string> &input_names,
-                              const std::vector<std::string> &output_names)
+                              const std::vector<std::string> &output_names,
+                              TypeRegistry& registry)
     -> Expected<KernelSpec> {
-  auto signature_result = build_signature<Fn>(input_names, output_names);
+  auto signature_result = build_signature<Fn>(input_names, output_names, registry);
   if (!signature_result) {
     return tl::unexpected(signature_result.error());
   }
@@ -72,11 +74,14 @@ public:
     InvokeFn invoke_ = nullptr;
   };
 
-  KernelRegistry() = default;
+  explicit KernelRegistry(std::shared_ptr<TypeRegistry> type_registry);
   KernelRegistry(const KernelRegistry &) = delete;
   auto operator=(const KernelRegistry &) -> KernelRegistry & = delete;
   KernelRegistry(KernelRegistry &&other) noexcept;
   auto operator=(KernelRegistry &&other) noexcept -> KernelRegistry &;
+
+  auto type_registry() const -> const TypeRegistry& { return *type_registry_; }
+  auto type_registry_ptr() const -> std::shared_ptr<TypeRegistry> { return type_registry_; }
 
   /// Register a raw factory for a kernel name.
   auto register_factory(std::string name, Factory factory) -> void;
@@ -88,8 +93,9 @@ public:
                        std::uint32_t estimated_cost_us = 0) -> void {
     auto inputs = std::vector<std::string>{};
     auto outputs = std::vector<std::string>{};
+    // Use the type registry to build the spec
     auto spec =
-        detail::make_kernel_spec_from_fn(std::move(fn), inputs, outputs);
+        detail::make_kernel_spec_from_fn(std::move(fn), inputs, outputs, *type_registry_);
     if (spec) {
       spec->handle.traits = traits;
       spec->handle.estimated_cost_us = estimated_cost_us;
@@ -108,9 +114,11 @@ public:
   auto register_kernel_with_params(std::string name, Factory factory) -> void {
     auto inputs = std::vector<std::string>{};
     auto outputs = std::vector<std::string>{};
+    // Capture type_registry for use in the factory lambda
+    auto type_reg = type_registry_; 
     register_factory(std::move(name),
                      [factory = std::move(factory), inputs = std::move(inputs),
-                      outputs = std::move(outputs)](
+                      outputs = std::move(outputs), type_reg](
                          const Json &params) mutable -> Expected<KernelSpec> {
                        using FactoryResult = decltype(factory(params));
                        if constexpr (detail::is_expected_v<FactoryResult>) {
@@ -119,11 +127,11 @@ public:
                            return tl::unexpected(fn_result.error());
                          }
                          return detail::make_kernel_spec_from_fn(
-                             std::move(*fn_result), inputs, outputs);
+                             std::move(*fn_result), inputs, outputs, *type_reg);
                        } else {
                          auto fn = factory(params);
                          return detail::make_kernel_spec_from_fn(
-                             std::move(fn), inputs, outputs);
+                             std::move(fn), inputs, outputs, *type_reg);
                        }
                      });
   }
@@ -133,6 +141,7 @@ public:
 private:
   mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, std::shared_ptr<Factory>> factories_;
+  std::shared_ptr<TypeRegistry> type_registry_;
 };
 
 } // namespace sr::engine

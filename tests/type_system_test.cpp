@@ -1,5 +1,6 @@
 #include "engine/type_system.hpp"
 #include "engine/type_abi.h"
+#include "engine/kernel_adapt.hpp"
 #include <gtest/gtest.h>
 
 TEST(TypeSystem, StableTypeIdForPrimitive) {
@@ -45,4 +46,22 @@ TEST(TypeSystem, PluginTypeStableId) {
   auto id1 = registry->intern_plugin(desc);
   auto id2 = registry->intern_plugin(desc);
   ASSERT_EQ(id1, id2);
+}
+
+TEST(TypeSystem, KernelSignatureUsesTypeId) {
+  auto registry = sr::engine::TypeRegistry::create();
+  registry->intern_primitive("i64");
+  auto sig = sr::engine::detail::build_signature_with_types<
+      std::function<int64_t(int64_t)>>(*registry);
+  ASSERT_EQ(sig->inputs[0].type_id, registry->intern_primitive("i64"));
+}
+
+TEST(TypeSystem, DetectsHashCollision) {
+  auto registry = sr::engine::TypeRegistry::create();
+  auto id1 = registry->intern_primitive("i64");
+  // Force collision by using a method that simulates it
+  // We need to expose this method in TypeRegistry or use a friend/hack
+  // The plan says: registry->intern_with_forced_id("u64", id1);
+  auto id2 = registry->intern_with_forced_id("u64", id1);
+  ASSERT_NE(id2, id1);
 }

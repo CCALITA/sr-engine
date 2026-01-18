@@ -12,6 +12,23 @@
 #include <vector>
 
 #include "engine/error.hpp"
+#include "engine/kernel_adapt.hpp"
+
+namespace sr::engine::detail {
+template <> struct TypeNameTrait<sr::kernel::flight::FlightServerCall> { static constexpr std::string_view name() { return "flight_server_call"; } };
+template <> struct TypeNameTrait<sr::kernel::flight::FlightCallKind> { static constexpr std::string_view name() { return "flight_call_kind"; } };
+template <> struct TypeNameTrait<arrow::flight::Action> { static constexpr std::string_view name() { return "flight_action_value"; } };
+template <> struct TypeNameTrait<std::optional<arrow::flight::Action>> { static constexpr std::string_view name() { return "flight_action"; } };
+template <> struct TypeNameTrait<arrow::flight::Ticket> { static constexpr std::string_view name() { return "flight_ticket_value"; } };
+template <> struct TypeNameTrait<std::optional<arrow::flight::Ticket>> { static constexpr std::string_view name() { return "flight_ticket"; } };
+template <> struct TypeNameTrait<arrow::flight::FlightDescriptor> { static constexpr std::string_view name() { return "flight_descriptor_value"; } };
+template <> struct TypeNameTrait<std::optional<arrow::flight::FlightDescriptor>> { static constexpr std::string_view name() { return "flight_descriptor"; } };
+template <> struct TypeNameTrait<std::shared_ptr<arrow::flight::FlightMessageReader>> { static constexpr std::string_view name() { return "flight_reader"; } };
+template <> struct TypeNameTrait<std::shared_ptr<arrow::flight::FlightMessageWriter>> { static constexpr std::string_view name() { return "flight_writer"; } };
+template <> struct TypeNameTrait<std::shared_ptr<arrow::flight::FlightMetadataWriter>> { static constexpr std::string_view name() { return "flight_metadata_writer"; } };
+template <> struct TypeNameTrait<std::shared_ptr<arrow::RecordBatchReader>> { static constexpr std::string_view name() { return "record_batch_reader"; } };
+template <> struct TypeNameTrait<std::vector<arrow::flight::Result>> { static constexpr std::string_view name() { return "flight_results"; } };
+}
 
 namespace sr::kernel {
 namespace {
@@ -385,7 +402,7 @@ auto flight_invoice_exchange(const flight::FlightServerCall &call) noexcept
 
 } // namespace
 
-auto register_flight_types() -> void {
+auto register_flight_types(sr::engine::TypeRegistry& registry) -> void {
   sr::engine::register_type<flight::FlightCallKind>("flight_call_kind");
   sr::engine::register_type<arrow::flight::Action>("flight_action_value");
   sr::engine::register_type<std::optional<arrow::flight::Action>>(
@@ -409,10 +426,24 @@ auto register_flight_types() -> void {
   sr::engine::register_type<std::vector<arrow::flight::Result>>(
       "flight_results");
   sr::engine::register_type<flight::FlightServerCall>("flight_server_call");
+
+  registry.intern_primitive("flight_call_kind");
+  registry.intern_primitive("flight_action_value");
+  registry.intern_primitive("flight_action");
+  registry.intern_primitive("flight_ticket_value");
+  registry.intern_primitive("flight_ticket");
+  registry.intern_primitive("flight_descriptor_value");
+  registry.intern_primitive("flight_descriptor");
+  registry.intern_primitive("flight_reader");
+  registry.intern_primitive("flight_writer");
+  registry.intern_primitive("flight_metadata_writer");
+  registry.intern_primitive("record_batch_reader");
+  registry.intern_primitive("flight_results");
+  registry.intern_primitive("flight_server_call");
 }
 
 auto register_flight_kernels(KernelRegistry &registry) -> void {
-  register_flight_types();
+  register_flight_types(*registry.type_registry_ptr());
 
   registry.register_kernel(
       "flight_server_input", [](const flight::FlightServerCall &call) noexcept {

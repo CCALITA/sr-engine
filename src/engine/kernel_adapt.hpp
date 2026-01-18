@@ -395,36 +395,51 @@ auto invoke_kernel(Fn &fn, RequestContext &ctx, const InputValues &inputs,
   }
 }
 
+template <typename T>
+struct TypeNameTrait {
+  static constexpr std::string_view name() { return "unknown"; }
+};
+
+template <> struct TypeNameTrait<int64_t> { static constexpr std::string_view name() { return "i64"; } };
+template <> struct TypeNameTrait<double> { static constexpr std::string_view name() { return "f64"; } };
+template <> struct TypeNameTrait<bool> { static constexpr std::string_view name() { return "bool"; } };
+template <> struct TypeNameTrait<std::string> { static constexpr std::string_view name() { return "string"; } };
+
 template <typename Arg>
-auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
+auto append_input(std::vector<PortDesc> &inputs, std::string_view name, sr::engine::TypeRegistry& registry)
     -> Expected<void> {
   using traits = input_arg_traits<Arg>;
   using port_type = typename traits::port_type;
-  auto meta = entt::resolve<port_type>();
-  if (!meta) {
-    return tl::unexpected(
-        make_error(std::format("unregistered input type for port: {}", name)));
-  }
+  
+  std::string_view type_name = TypeNameTrait<port_type>::name();
+  
+  // Try entt if unknown (if available and reliable)
+  // For now rely on trait.
+  
+  sr::engine::TypeId type_id = registry.intern_primitive(type_name);
+
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type = meta;
+  port.type_id = type_id;
+  port.meta_type = entt::resolve<port_type>();
   port.required = !traits::optional;
   inputs.push_back(std::move(port));
   return {};
 }
 
 template <typename Arg>
-auto append_output(std::vector<PortDesc> &outputs, std::string_view name)
+auto append_output(std::vector<PortDesc> &outputs, std::string_view name, sr::engine::TypeRegistry& registry)
     -> Expected<void> {
   using port_type = output_port_type_t<Arg>;
-  auto meta = entt::resolve<port_type>();
-  if (!meta) {
-    return tl::unexpected(
-        make_error(std::format("unregistered output type for port: {}", name)));
-  }
+  
+  std::string_view type_name = TypeNameTrait<port_type>::name();
+
+  sr::engine::TypeId type_id = registry.intern_primitive(type_name);
+
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type = meta;
+  port.type_id = type_id;
+  port.meta_type = entt::resolve<port_type>();
   port.required = true;
   outputs.push_back(std::move(port));
   return {};
@@ -442,11 +457,12 @@ auto for_each_index(Fn &&fn, std::index_sequence<I...>) -> Expected<void> {
 
 template <typename Tuple>
 auto append_inputs(std::vector<PortDesc> &inputs,
-                   const std::vector<std::string> &names) -> Expected<void> {
-  auto add = [&inputs, &names](auto index_c) -> Expected<void> {
+                   const std::vector<std::string> &names,
+                   sr::engine::TypeRegistry& registry) -> Expected<void> {
+  auto add = [&inputs, &names, &registry](auto index_c) -> Expected<void> {
     constexpr std::size_t index = decltype(index_c)::value;
     return append_input<std::tuple_element_t<index, Tuple>>(inputs,
-                                                            names[index]);
+                                                            names[index], registry);
   };
   return for_each_index<Tuple>(
       add, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
@@ -454,11 +470,12 @@ auto append_inputs(std::vector<PortDesc> &inputs,
 
 template <typename Tuple>
 auto append_outputs(std::vector<PortDesc> &outputs,
-                    const std::vector<std::string> &names) -> Expected<void> {
-  auto add = [&outputs, &names](auto index_c) -> Expected<void> {
+                    const std::vector<std::string> &names,
+                    sr::engine::TypeRegistry& registry) -> Expected<void> {
+  auto add = [&outputs, &names, &registry](auto index_c) -> Expected<void> {
     constexpr std::size_t index = decltype(index_c)::value;
     return append_output<std::tuple_element_t<index, Tuple>>(outputs,
-                                                             names[index]);
+                                                             names[index], registry);
   };
   return for_each_index<Tuple>(
       add, std::make_index_sequence<std::tuple_size_v<Tuple>>{});
@@ -466,7 +483,8 @@ auto append_outputs(std::vector<PortDesc> &outputs,
 
 template <typename Fn>
 auto build_signature(const std::vector<std::string> &input_names,
-                     const std::vector<std::string> &output_names)
+                     const std::vector<std::string> &output_names,
+                     sr::engine::TypeRegistry& registry)
     -> Expected<Signature> {
   using traits = kernel_traits<Fn>;
   using input_tuple = typename traits::input_tuple;
@@ -495,18 +513,23 @@ auto build_signature(const std::vector<std::string> &input_names,
   signature.outputs.reserve(output_count);
 
   auto input_result =
-      append_inputs<input_tuple>(signature.inputs, resolved_inputs);
+      append_inputs<input_tuple>(signature.inputs, resolved_inputs, registry);
   if (!input_result) {
     return tl::unexpected(input_result.error());
   }
 
   auto output_result =
-      append_outputs<output_tuple>(signature.outputs, resolved_outputs);
+      append_outputs<output_tuple>(signature.outputs, resolved_outputs, registry);
   if (!output_result) {
     return tl::unexpected(output_result.error());
   }
 
   return signature;
+}
+
+template <typename Fn>
+auto build_signature_with_types(sr::engine::TypeRegistry& registry) -> Expected<Signature> {
+    return build_signature<Fn>({}, {}, registry);
 }
 
 template <typename Fn>

@@ -102,7 +102,14 @@ inline auto parse_graph(const char *dsl, sr::engine::GraphDef &out,
 
 /// Build a registry with the default sample kernels.
 inline auto make_registry() -> sr::engine::KernelRegistry {
-  sr::engine::KernelRegistry registry;
+  auto type_registry = sr::engine::TypeRegistry::create();
+  // Register basic types needed for tests
+  type_registry->intern_primitive("i64");
+  type_registry->intern_primitive("f64");
+  type_registry->intern_primitive("bool");
+  type_registry->intern_primitive("string");
+
+  sr::engine::KernelRegistry registry(type_registry);
   sr::kernel::register_sample_kernels(registry);
   return registry;
 }

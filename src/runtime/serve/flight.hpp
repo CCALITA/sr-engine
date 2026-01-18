@@ -19,6 +19,8 @@
 #include "engine/error.hpp"
 #include "kernel/flight_kernels.hpp"
 
+#include "engine/type_system.hpp"
+
 namespace sr::engine {
 struct ExecPlan;
 struct RequestContext;
@@ -82,7 +84,7 @@ private:
 };
 
 /// Inspect an ExecPlan and return the required flight env bindings.
-auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings>;
+auto analyze_flight_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<FlightEnvBindings>;
 
 /// Populate RequestContext.env for a Flight request.
 auto populate_flight_env(RequestContext &ctx, FlightEnvelope &env,

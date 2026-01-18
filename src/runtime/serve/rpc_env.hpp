@@ -26,7 +26,7 @@ struct RpcEnvBindings {
 };
 
 /// Inspect an ExecPlan and return the required rpc env bindings.
-auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings>;
+auto analyze_rpc_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<RpcEnvBindings>;
 
 /// Populate RequestContext.env for a gRPC request.
 auto populate_grpc_env(RequestContext &ctx, GrpcEnvelope &env,

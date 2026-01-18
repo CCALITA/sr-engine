@@ -80,12 +80,109 @@ auto remaining_deadline_ms(const RequestContext &ctx) -> std::int64_t {
   return remaining.count();
 }
 
-auto validate_type(const EnvRequirement &req, entt::meta_type expected,
+auto validate_type(const EnvRequirement &req, TypeId expected,
                    std::string_view key) -> Expected<void> {
-  if (!expected) {
+  if (req.type_id && req.type_id != expected) {
     return tl::unexpected(make_error(
-        std::format("missing type registration for env key: {}", key)));
+        std::format("env type mismatch for key: {}", key)));
   }
+  return {};
+}
+
+} // namespace
+
+auto analyze_flight_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<FlightEnvBindings> {
+  FlightEnvBindings bindings;
+  // Intern types
+  auto t_call = registry.intern_primitive("flight_server_call");
+  auto t_kind = registry.intern_primitive("flight_call_kind");
+  auto t_action = registry.intern_primitive("flight_action");
+  auto t_ticket = registry.intern_primitive("flight_ticket");
+  auto t_descriptor = registry.intern_primitive("flight_descriptor");
+  auto t_reader = registry.intern_primitive("flight_reader");
+  auto t_writer = registry.intern_primitive("flight_writer");
+  auto t_meta_writer = registry.intern_primitive("flight_metadata_writer");
+  auto t_string = registry.intern_primitive("string");
+  auto t_i64 = registry.intern_primitive("i64");
+
+  for (const auto &req : plan.env_requirements) {
+    if (req.key == kFlightCallKey) {
+      if (auto ok = validate_type(req, t_call, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.call = true;
+      continue;
+    }
+    if (req.key == kFlightKindKey) {
+      if (auto ok = validate_type(req, t_kind, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.kind = true;
+      continue;
+    }
+    if (req.key == kFlightActionKey) {
+      if (auto ok = validate_type(req, t_action, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.action = true;
+      continue;
+    }
+    if (req.key == kFlightTicketKey) {
+      if (auto ok = validate_type(req, t_ticket, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.ticket = true;
+      continue;
+    }
+    if (req.key == kFlightDescriptorKey) {
+      if (auto ok = validate_type(req, t_descriptor, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.descriptor = true;
+      continue;
+    }
+    if (req.key == kFlightReaderKey) {
+      if (auto ok = validate_type(req, t_reader, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.reader = true;
+      continue;
+    }
+    if (req.key == kFlightWriterKey) {
+      if (auto ok = validate_type(req, t_writer, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.writer = true;
+      continue;
+    }
+    if (req.key == kFlightMetadataWriterKey) {
+      if (auto ok = validate_type(req, t_meta_writer, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.metadata_writer = true;
+      continue;
+    }
+    if (req.key == kFlightPeerKey) {
+      if (auto ok = validate_type(req, t_string, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.peer = true;
+      continue;
+    }
+    if (req.key == kFlightDeadlineKey) {
+      if (auto ok = validate_type(req, t_i64, req.key); !ok) {
+        return tl::unexpected(ok.error());
+      }
+      bindings.deadline_ms = true;
+      continue;
+    }
+    return tl::unexpected(make_error(
+        std::format("unsupported serve env key for flight transport: {}",
+                    req.key)));
+  }
+  return bindings;
+}
+
   if (req.type && req.type != expected) {
     return tl::unexpected(make_error(
         std::format("env type mismatch for key: {}", key)));

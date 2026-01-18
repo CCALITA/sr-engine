@@ -128,7 +128,13 @@ auto make_capture_responder(std::shared_ptr<CaptureResponder> responder)
 }
 
 auto make_rpc_registry() -> sr::engine::KernelRegistry {
-  sr::engine::KernelRegistry registry;
+  auto type_registry = sr::engine::TypeRegistry::create();
+  type_registry->intern_primitive("i64");
+  type_registry->intern_primitive("f64");
+  type_registry->intern_primitive("bool");
+  type_registry->intern_primitive("string");
+
+  sr::engine::KernelRegistry registry(type_registry);
   sr::kernel::register_sample_kernels(registry);
   sr::kernel::register_rpc_kernels(registry);
   return registry;

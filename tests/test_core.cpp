@@ -368,7 +368,8 @@ auto test_dynamic_port_names() -> bool {
     return false;
   }
 
-  sr::engine::KernelRegistry registry;
+  sr::engine::KernelRegistry registry(sr::engine::TypeRegistry::create());
+  registry.type_registry_ptr()->intern_primitive("i64");
   registry.register_kernel("sum_dyn",
                            [](int64_t x, int64_t y) noexcept { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
@@ -416,7 +417,8 @@ auto test_dynamic_ports_missing_names() -> bool {
     return false;
   }
 
-  sr::engine::KernelRegistry registry;
+  sr::engine::KernelRegistry registry(sr::engine::TypeRegistry::create());
+  registry.type_registry_ptr()->intern_primitive("i64");
   registry.register_kernel("sum_dyn",
                            [](int64_t x, int64_t y) noexcept { return x + y; });
   auto plan = sr::engine::compile_plan(graph, registry);
@@ -584,8 +586,7 @@ auto test_dataflow_task_types() -> bool {
     return false;
   }
 
-  sr::engine::KernelRegistry registry;
-  sr::kernel::register_sample_kernels(registry);
+  auto registry = make_registry();
 
   auto record = std::make_shared<ThreadRecord>();
 

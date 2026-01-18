@@ -50,8 +50,8 @@ auto get_string_param(const sr::engine::Json &params, const char *key,
 } // namespace
 
 auto register_builtin_types() -> void {
-  sr::engine::register_type<int64_t>("int64");
-  sr::engine::register_type<double>("double");
+  sr::engine::register_type<int64_t>("i64");
+  sr::engine::register_type<double>("f64");
   sr::engine::register_type<bool>("bool");
   sr::engine::register_type<std::string>("string");
 }

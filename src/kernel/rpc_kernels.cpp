@@ -26,6 +26,16 @@
 #include <exec/static_thread_pool.hpp>
 #include <stdexec/execution.hpp>
 
+#include "engine/kernel_adapt.hpp"
+
+namespace sr::engine::detail {
+template <> struct TypeNameTrait<sr::kernel::rpc::RpcServerCall> { static constexpr std::string_view name() { return "rpc_server_call"; } };
+template <> struct TypeNameTrait<grpc::ByteBuffer> { static constexpr std::string_view name() { return "grpc_byte_buffer"; } };
+template <> struct TypeNameTrait<std::vector<grpc::ByteBuffer>> { static constexpr std::string_view name() { return "grpc_byte_buffer_vec"; } };
+template <> struct TypeNameTrait<sr::kernel::rpc::RpcMetadata> { static constexpr std::string_view name() { return "rpc_metadata"; } };
+template <> struct TypeNameTrait<sr::engine::Json> { static constexpr std::string_view name() { return "json"; } };
+}
+
 namespace sr::kernel {
 namespace {
 
@@ -597,7 +607,7 @@ struct MetricsKernel {
 
 } // namespace
 
-auto register_rpc_types() -> void {
+auto register_rpc_types(sr::engine::TypeRegistry& registry) -> void {
   sr::engine::register_type<grpc::ByteBuffer>("grpc_byte_buffer");
   sr::engine::register_type<std::vector<grpc::ByteBuffer>>(
       "grpc_byte_buffer_vec");
@@ -605,10 +615,17 @@ auto register_rpc_types() -> void {
   sr::engine::register_type<rpc::RpcServerCall>("rpc_server_call");
   sr::engine::register_type<Json>("json");
   sr::engine::register_type<std::shared_ptr<RpcMetrics>>("rpc_metrics");
+
+  registry.intern_primitive("grpc_byte_buffer");
+  registry.intern_primitive("grpc_byte_buffer_vec");
+  registry.intern_primitive("rpc_metadata");
+  registry.intern_primitive("rpc_server_call");
+  registry.intern_primitive("json");
+  registry.intern_primitive("rpc_metrics");
 }
 
 auto register_rpc_kernels(KernelRegistry &registry) -> void {
-  register_rpc_types();
+  register_rpc_types(*registry.type_registry_ptr());
 
   registry.register_kernel(
       "rpc_server_input", [](const rpc::RpcServerCall &call) noexcept {

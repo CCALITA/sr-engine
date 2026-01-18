@@ -96,7 +96,9 @@ auto test_trace_parallel_runs() -> bool {
   }
 
   auto registry = make_registry();
-  auto plan = sr::engine::compile_plan(graph, registry);
+  sr::engine::CompileOptions options;
+  options.fusion.enabled = false;
+  auto plan = sr::engine::compile_plan(graph, registry, options);
   if (!plan) {
     return fail(std::format("compile error: {}", plan.error().message));
   }

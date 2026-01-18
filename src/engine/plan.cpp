@@ -23,20 +23,22 @@ struct NodeBuild {
   std::unordered_map<NameId, int> output_port_map;
 };
 
-auto make_const_slot(const Json &value, entt::meta_type expected)
+auto make_const_slot(const Json &value, TypeId expected, const TypeRegistry& registry)
     -> Expected<ValueBox> {
-  if (!expected) {
+  const TypeInfo* info = registry.lookup(expected);
+  if (!info) {
     return tl::unexpected(
         make_error("const binding expects a registered type"));
   }
 
   ValueBox slot;
-  auto int_type = entt::resolve<int64_t>();
-  auto double_type = entt::resolve<double>();
-  auto bool_type = entt::resolve<bool>();
-  auto string_type = entt::resolve<std::string>();
+  // Note: ValueBox still uses entt internally or needs to store TypeId.
+  // For now, we assume ValueBox uses entt::resolve<T>() implicitly via set<T>.
+  // We need to ensure consistency.
+  // If we change ValueBox to use TypeId, we set it here.
+  slot.type_id = expected; // We need to update ValueBox to have type_id member
 
-  if (expected == int_type) {
+  if (info->name == "i64") {
     if (!(value.is_number_integer() || value.is_number_unsigned())) {
       return tl::unexpected(make_error("const binding expects int64"));
     }
@@ -44,7 +46,7 @@ auto make_const_slot(const Json &value, entt::meta_type expected)
     return slot;
   }
 
-  if (expected == double_type) {
+  if (info->name == "f64") {
     if (!value.is_number()) {
       return tl::unexpected(make_error("const binding expects double"));
     }
@@ -52,7 +54,7 @@ auto make_const_slot(const Json &value, entt::meta_type expected)
     return slot;
   }
 
-  if (expected == bool_type) {
+  if (info->name == "bool") {
     if (!value.is_boolean()) {
       return tl::unexpected(make_error("const binding expects bool"));
     }
@@ -60,7 +62,7 @@ auto make_const_slot(const Json &value, entt::meta_type expected)
     return slot;
   }
 
-  if (expected == string_type) {
+  if (info->name == "string") {
     if (!value.is_string()) {
       return tl::unexpected(make_error("const binding expects string"));
     }
@@ -68,7 +70,7 @@ auto make_const_slot(const Json &value, entt::meta_type expected)
     return slot;
   }
 
-  return tl::unexpected(make_error("const binding type is not supported"));
+  return tl::unexpected(make_error("const binding type is not supported: " + info->name));
 }
 
 auto apply_port_names(std::vector<PortDesc> &ports,
@@ -166,7 +168,7 @@ struct PlanBuilder {
       build.input_port_map.reserve(build.signature.inputs.size());
       for (std::size_t i = 0; i < build.signature.inputs.size(); ++i) {
         const auto &in_port = build.signature.inputs[i];
-        if (!in_port.type) {
+        if (!in_port.type_id) {
           return tl::unexpected(make_error(
               std::format("input port type missing for node: {}", build.id)));
         }
@@ -174,12 +176,12 @@ struct PlanBuilder {
       }
 
       for (const auto &out_port : build.signature.outputs) {
-        if (!out_port.type) {
+        if (!out_port.type_id) {
           return tl::unexpected(make_error(
               std::format("output port type missing for node: {}", build.id)));
         }
         int slot_index = static_cast<int>(slots.size());
-        slots.push_back(SlotSpec{out_port.type});
+        slots.push_back(SlotSpec{out_port.type_id, out_port.meta_type});
         build.outputs.push_back(slot_index);
         build.output_port_map.emplace(out_port.name_id, slot_index);
       }
@@ -234,8 +236,8 @@ struct PlanBuilder {
                           binding.source.node, binding.source.port)));
         }
         int slot_index = out_it->second;
-        if (slots[static_cast<std::size_t>(slot_index)].type !=
-            input_port.type) {
+        if (slots[static_cast<std::size_t>(slot_index)].type_id !=
+            input_port.type_id) {
           return tl::unexpected(
               make_error(std::format("type mismatch for binding: {}.{}",
                                      binding.to_node, binding.to_port)));
@@ -254,11 +256,11 @@ struct PlanBuilder {
           index = static_cast<int>(env_requirements.size());
           env_index.emplace(binding.source.env_key, index);
           env_requirements.push_back(
-              EnvRequirement{binding.source.env_key, input_port.type});
+              EnvRequirement{binding.source.env_key, input_port.type_id, input_port.meta_type});
         } else {
           index = env_it->second;
-          if (env_requirements[static_cast<std::size_t>(index)].type !=
-              input_port.type) {
+          if (env_requirements[static_cast<std::size_t>(index)].type_id !=
+              input_port.type_id) {
             return tl::unexpected(
                 make_error(std::format("env type mismatch for binding: {}.{}",
                                        binding.to_node, binding.to_port)));
@@ -269,7 +271,7 @@ struct PlanBuilder {
       }
       case BindingKind::Const: {
         auto slot =
-            make_const_slot(binding.source.const_value, input_port.type);
+            make_const_slot(binding.source.const_value, input_port.type_id, registry.type_registry());
         if (!slot) {
           return tl::unexpected(slot.error());
         }

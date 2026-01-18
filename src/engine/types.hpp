@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "engine/type_system.hpp"
 #include "engine/error.hpp"
 #include "engine/trace.hpp"
 #include "reflection/entt.hpp"
@@ -44,7 +45,8 @@ enum class Cardinality {
 /// Describes a single input/output port type.
 struct PortDesc {
   NameId name_id{};
-  entt::meta_type type;
+  TypeId type_id{};
+  entt::meta_type meta_type{};
   bool required = true;
   Cardinality cardinality = Cardinality::Single;
 };
@@ -58,6 +60,7 @@ struct Signature {
 /// Type-erased box holding a registered value instance.
 struct ValueBox {
   entt::meta_type type{};
+  TypeId type_id{};
 
   std::shared_ptr<void> storage{};
 

@@ -192,15 +192,24 @@ Runtime::Runtime(RuntimeConfig config)
                        : (std::thread::hardware_concurrency() > 0
                               ? std::thread::hardware_concurrency()
                               : 1)),
-      serve_pool_(config.executor.compute_threads > 0
-                      ? config.executor.compute_threads
-                      : (std::thread::hardware_concurrency() > 0
-                             ? std::thread::hardware_concurrency()
-                             : 1)),
+       serve_pool_(config.executor.compute_threads > 0
+                       ? config.executor.compute_threads
+                       : (std::thread::hardware_concurrency() > 0
+                              ? std::thread::hardware_concurrency()
+                              : 1)),
+       type_registry_(TypeRegistry::create()),
+       registry_(type_registry_),
        store_(config.store), executor_(&thread_pool_) {
   sr::log::init();
   
   sr::log::info("Initializing sr-engine runtime");
+
+  // Register core types
+  type_registry_->intern_primitive("i64");
+  type_registry_->intern_primitive("f64");
+  type_registry_->intern_primitive("bool");
+  type_registry_->intern_primitive("string");
+
   
   if (config.graph_root && !config.graph_root->empty()) {
     sr::log::info("Starting graph daemon watching '{}'", config.graph_root->string());

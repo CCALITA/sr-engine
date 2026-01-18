@@ -196,7 +196,7 @@ auto build_stage_inputs(const FusedStage& stage,
       return tl::unexpected(
           make_error(std::format("missing env value in fused kernel: {}", eb.key)));
     }
-    if (eb.type && value->type != eb.type) {
+    if (eb.meta_type && value->type != eb.meta_type) {
       return tl::unexpected(
           make_error(std::format("env type mismatch in fused kernel: {}", eb.key)));
     }
@@ -323,7 +323,7 @@ auto FusedKernel::compute(void* self, RequestContext& ctx,
     }
     
     ValueBox next_intermediate;
-    next_intermediate.type = fused->stages[s].output_type;
+    next_intermediate.type_id = fused->stages[s].output_type;
     
     auto stage_in = make_input_values(merged_refs);
     ValueBox* out_ptr = &next_intermediate;
@@ -436,7 +436,7 @@ auto apply_fusion_pass(ExecPlan& plan, const FusionOptions& options)
       // Get output type from slot spec
       if (!node.outputs.empty()) {
         int slot = node.outputs[0];
-        stage.output_type = plan.slots[static_cast<std::size_t>(slot)].type;
+        stage.output_type = plan.slots[static_cast<std::size_t>(slot)].type_id;
       }
       
       // Capture const inputs
@@ -450,7 +450,7 @@ auto apply_fusion_pass(ExecPlan& plan, const FusionOptions& options)
         } else if (input.kind == InputBindingKind::Env) {
           const auto& req = plan.env_requirements[
               static_cast<std::size_t>(input.env_index)];
-          stage.env_bindings.push_back({i, req.key, req.type});
+          stage.env_bindings.push_back({i, req.key, req.type_id, req.meta_type});
         }
       }
       

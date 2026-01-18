@@ -95,10 +95,10 @@ auto parse_graph_selection(std::optional<std::string_view> name_value,
   return selection;
 }
 
-auto register_serve_types() -> void {
-  sr::kernel::register_rpc_types();
+auto register_serve_types(TypeRegistry& registry) -> void {
+  sr::kernel::register_rpc_types(registry);
 #ifdef SR_ENGINE_WITH_ARROW_FLIGHT
-  sr::kernel::register_flight_types();
+  sr::kernel::register_flight_types(registry);
 #endif
 }
 
@@ -173,7 +173,7 @@ public:
     if (auto ok = Traits::validate_transport(config); !ok) {
       return tl::unexpected(ok.error());
     }
-    register_serve_types();
+    register_serve_types(*runtime->registry().type_registry_ptr());
 
     if (auto ok = transport_->start(); !ok) {
       return tl::unexpected(ok.error());
@@ -308,7 +308,7 @@ private:
     if (it != env_cache.end()) {
       return it->second;
     }
-    auto bindings = Traits::analyze_env(snapshot.plan);
+    auto bindings = Traits::analyze_env(snapshot.plan, *runtime->registry().type_registry_ptr());
     if (!bindings) {
       return tl::unexpected(bindings.error());
     }
@@ -509,8 +509,8 @@ struct GrpcTraits final {
   }
 
   [[nodiscard]]
-  static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
-    return analyze_rpc_env(plan);
+  static auto analyze_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<EnvBindings> {
+    return analyze_rpc_env(plan, registry);
   }
 
   [[nodiscard]]
@@ -588,8 +588,8 @@ template <typename Envelope, typename EnvBindings>
 struct RpcTraitsBase {
   using Bindings = EnvBindings;
 
-  static auto analyze_env(const ExecPlan &plan) -> Expected<Bindings> {
-    return analyze_rpc_env(plan);
+  static auto analyze_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<Bindings> {
+    return analyze_rpc_env(plan, registry);
   }
 
   static auto requires_response(const Envelope &) -> bool { return true; }
@@ -650,8 +650,8 @@ struct IpcTraits final {
   }
 
   [[nodiscard]]
-  static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
-    return analyze_rpc_env(plan);
+  static auto analyze_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<EnvBindings> {
+    return analyze_rpc_env(plan, registry);
   }
 
   [[nodiscard]]
@@ -739,9 +739,16 @@ struct FlightTraits final {
   }
 
   [[nodiscard]]
-  static auto analyze_env(const ExecPlan &plan) -> Expected<EnvBindings> {
-    return analyze_flight_env(plan);
+  static auto analyze_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<EnvBindings> {
+    return analyze_flight_env(plan, registry);
   }
+
+
+  [[nodiscard]]
+  static auto analyze_env(const ExecPlan &plan, TypeRegistry& registry) -> Expected<EnvBindings> {
+    return analyze_rpc_env(plan, registry);
+  }
+
 
   [[nodiscard]]
   static auto populate_env(RequestContext &ctx, Envelope &env,

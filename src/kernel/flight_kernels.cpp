@@ -413,8 +413,7 @@ auto register_flight_types(sr::engine::TypeRegistry &registry) -> void {
 }
 
 auto register_flight_kernels(KernelRegistry &registry) -> void {
-  static sr::engine::TypeRegistry type_registry;
-  register_flight_types(type_registry);
+  register_flight_types(*registry.type_registry());
 
   registry.register_kernel(
       "flight_server_input", [](const flight::FlightServerCall &call) noexcept {

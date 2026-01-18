@@ -609,8 +609,7 @@ auto register_rpc_types(sr::engine::TypeRegistry &registry) -> void {
 }
 
 auto register_rpc_kernels(KernelRegistry &registry) -> void {
-  static sr::engine::TypeRegistry type_registry;
-  register_rpc_types(type_registry);
+  register_rpc_types(*registry.type_registry());
 
   registry.register_kernel(
       "rpc_server_input", [](const rpc::RpcServerCall &call) noexcept {

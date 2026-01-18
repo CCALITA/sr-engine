@@ -59,6 +59,8 @@ auto register_builtin_types(sr::engine::TypeRegistry &registry) -> void {
 }
 
 auto register_sample_kernels(KernelRegistry &registry) -> void {
+  register_builtin_types(*registry.type_registry());
+
   registry.register_kernel("add", [](int64_t a, int64_t b) noexcept { return a + b; });
 
   registry.register_kernel("sub_i64", [](int64_t a, int64_t b) noexcept { return a - b; });

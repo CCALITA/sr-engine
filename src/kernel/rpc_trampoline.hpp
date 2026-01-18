@@ -83,7 +83,10 @@ struct AnySerializer {
 class RpcTrampoline {
 public:
   explicit RpcTrampoline(RuntimeConfig config) : config_(std::move(config)) {
-    initialize();
+    auto init = initialize();
+    if (!init) {
+      throw std::runtime_error(init.error().message);
+    }
   }
 
   auto reconfigure(RuntimeConfig new_config) -> engine::Expected<void> {

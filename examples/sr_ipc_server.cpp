@@ -429,8 +429,9 @@ void register_handlers() {
 int main(int argc, char **argv) {
   register_handlers();
 
+  static sr::engine::TypeRegistry type_registry;
   sr::engine::Runtime runtime;
-  sr::kernel::register_builtin_types();
+  sr::kernel::register_builtin_types(type_registry);
   sr::kernel::register_rpc_kernels(runtime.registry());
 
   // Register our dispatcher kernel

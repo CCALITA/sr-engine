@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(sr_engine LANGUAGES CXX)
+if (APPLE AND NOT DEFINED CMAKE_CXX_COMPILER)
+  if (DEFINED ENV{CXX} AND "$ENV{CXX}" MATCHES "g\\+\\+|gcc")
+    message(STATUS "Detected GCC in CXX; forcing clang on macOS")
+    set(CMAKE_C_COMPILER "/usr/bin/clang" CACHE FILEPATH "C compiler" FORCE)
+    set(CMAKE_CXX_COMPILER "/usr/bin/clang++" CACHE FILEPATH "C++ compiler" FORCE)
+  endif()
+endif()
+
+project(sr_engine LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -28,6 +36,9 @@ add_library(sr_engine
   src/engine/graph_store.cpp
   src/engine/plan.cpp
   src/engine/registry.cpp
+  src/engine/type_encoding.cpp
+  src/engine/type_hash.cpp
+  src/engine/type_system.cpp
   src/engine/version.cpp
   src/runtime/executor.cpp
   src/runtime/runtime.cpp
@@ -38,10 +49,12 @@ add_library(sr_engine
   src/kernel/sample_kernels.cpp
   src/kernel/rpc_kernels.cpp
   src/kernel/rpc_transport_grpc.cpp
+  thirdparty/blake3/blake3.c
 )
 
 target_include_directories(sr_engine PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/blake3
   ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stdexec/include
 )
 
@@ -147,3 +160,11 @@ if (TARGET absl::log)
 endif()
 
 add_test(NAME sr_engine_tests COMMAND sr_engine_tests)
+
+add_executable(type_system_test
+  tests/type_system_test.cpp
+)
+
+target_link_libraries(type_system_test PRIVATE sr_engine)
+
+add_test(NAME type_system_test COMMAND type_system_test)

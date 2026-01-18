@@ -25,8 +25,8 @@ namespace {
 auto reset_slots(const ExecPlan &plan, std::vector<ValueBox> &slots) -> void {
   slots.resize(plan.slots.size());
   for (std::size_t i = 0; i < plan.slots.size(); ++i) {
-    slots[i].type = plan.slots[i].type;
-    slots[i].storage.reset();
+    slots[i].type_id = plan.slots[i].type_id;
+    slots[i].storage = ValueBox::InlineStorage{};
   }
 }
 
@@ -218,7 +218,14 @@ auto DAGStates::prepare(const ExecPlan &plan_ref, RequestContext &ctx_ref,
       case InputBindingKind::Env: {
         const auto &req = plan_ref.env_requirements[static_cast<std::size_t>(binding.env_index)];
         const auto *value = frozen_env.find(std::string_view(req.key));
-        assert(value && "env binding not found - this is a bug in prepare");
+        if (!value) {
+          return tl::unexpected(
+              make_error(std::format("missing env value for key: {}", req.key)));
+        }
+        if (req.type_id != TypeId{} && value->type_id != req.type_id) {
+          return tl::unexpected(
+              make_error(std::format("env type mismatch for key: {}", req.key)));
+        }
         input_refs.push_back(value);
         break;
       }
@@ -586,7 +593,11 @@ auto Executor::run(const ExecPlan &plan, RequestContext &ctx) const
   if (!result) {
     return tl::unexpected(make_error("execution failed or cancelled"));
   }
-  return std::move(std::get<0>(*result));
+  auto &maybe = std::get<0>(*result);
+  if (!maybe) {
+    return tl::unexpected(maybe.error());
+  }
+  return std::move(*maybe);
 }
 
 } // namespace sr::engine

@@ -276,8 +276,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  static sr::engine::TypeRegistry type_registry;
   sr::engine::Runtime runtime;
-  sr::kernel::register_builtin_types();
+  sr::kernel::register_builtin_types(type_registry);
   sr::kernel::register_sample_kernels(runtime.registry());
   sr::kernel::register_rpc_kernels(runtime.registry());
   register_demo_kernels(runtime.registry());

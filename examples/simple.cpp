@@ -46,9 +46,9 @@ struct StdoutTraceSink {
 
 int main(int argc, char* argv[]) {
   google::ParseCommandLineFlags(&argc, &argv, true);
-  sr::kernel::register_builtin_types();
-
+  static sr::engine::TypeRegistry type_registry;
   sr::engine::Runtime runtime;
+  sr::kernel::register_builtin_types(type_registry);
   sr::kernel::register_sample_kernels(runtime.registry());
 
   const char* dsl = R"JSON(

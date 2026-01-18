@@ -39,9 +39,9 @@ struct StdoutTraceSink {
 }  // namespace
 
 int main() {
-  sr::kernel::register_builtin_types();
-
+  static sr::engine::TypeRegistry type_registry;
   sr::engine::Runtime runtime;
+  sr::kernel::register_builtin_types(type_registry);
   sr::kernel::register_sample_kernels(runtime.registry());
 
   const char *dsl = R"JSON(

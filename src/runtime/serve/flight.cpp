@@ -11,6 +11,7 @@
 
 #include "engine/plan.hpp"
 #include "engine/types.hpp"
+#include "engine/type_names.hpp"
 
 namespace sr::engine::serve {
 namespace {
@@ -80,13 +81,13 @@ auto remaining_deadline_ms(const RequestContext &ctx) -> std::int64_t {
   return remaining.count();
 }
 
-auto validate_type(const EnvRequirement &req, entt::meta_type expected,
+auto validate_type(const EnvRequirement &req, TypeId expected,
                    std::string_view key) -> Expected<void> {
-  if (!expected) {
+  if (expected == TypeId{}) {
     return tl::unexpected(make_error(
         std::format("missing type registration for env key: {}", key)));
   }
-  if (req.type && req.type != expected) {
+  if (req.type_id != TypeId{} && req.type_id != expected) {
     return tl::unexpected(make_error(
         std::format("env type mismatch for key: {}", key)));
   }
@@ -167,7 +168,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
   for (const auto &req : plan.env_requirements) {
     if (req.key == kFlightCallKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<kernel::flight::FlightServerCall>(),
+              validate_type(req, TypeName<kernel::flight::FlightServerCall>::id(),
                             req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -177,7 +178,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightKindKey) {
       if (auto ok = validate_type(
-              req, entt::resolve<kernel::flight::FlightCallKind>(), req.key);
+              req, TypeName<kernel::flight::FlightCallKind>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -186,7 +187,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightActionKey) {
       if (auto ok = validate_type(
-              req, entt::resolve<std::optional<arrow::flight::Action>>(),
+              req, TypeName<std::optional<arrow::flight::Action>>::id(),
               req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -196,7 +197,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightTicketKey) {
       if (auto ok = validate_type(
-              req, entt::resolve<std::optional<arrow::flight::Ticket>>(),
+              req, TypeName<std::optional<arrow::flight::Ticket>>::id(),
               req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -207,7 +208,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     if (req.key == kFlightDescriptorKey) {
       if (auto ok = validate_type(
               req,
-              entt::resolve<std::optional<arrow::flight::FlightDescriptor>>(),
+              TypeName<std::optional<arrow::flight::FlightDescriptor>>::id(),
               req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -217,7 +218,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightReaderKey) {
       if (auto ok = validate_type(
-              req, entt::resolve<std::shared_ptr<arrow::flight::FlightMessageReader>>(),
+              req, TypeName<std::shared_ptr<arrow::flight::FlightMessageReader>>::id(),
               req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -227,8 +228,9 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightWriterKey) {
       if (auto ok = validate_type(
-              req, entt::resolve<std::shared_ptr<arrow::flight::FlightMessageWriter>>(),
+              req, TypeName<std::shared_ptr<arrow::flight::FlightMetadataWriter>>::id(),
               req.key);
+
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -238,7 +240,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     if (req.key == kFlightMetadataWriterKey) {
       if (auto ok = validate_type(
               req,
-              entt::resolve<std::shared_ptr<arrow::flight::FlightMetadataWriter>>(),
+              TypeName<std::shared_ptr<arrow::flight::FlightMetadataWriter>>::id(),
               req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -248,7 +250,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
     }
     if (req.key == kFlightPeerKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::string>(), req.key);
+              validate_type(req, TypeName<std::string>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -256,7 +258,7 @@ auto analyze_flight_env(const ExecPlan &plan) -> Expected<FlightEnvBindings> {
       continue;
     }
     if (req.key == kFlightDeadlineKey) {
-      if (auto ok = validate_type(req, entt::resolve<std::int64_t>(), req.key);
+      if (auto ok = validate_type(req, TypeName<std::int64_t>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }

@@ -53,7 +53,8 @@ public:
   }
 
   static auto initialize_benchmark() -> void {
-    sr::kernel::register_builtin_types();
+    static sr::engine::TypeRegistry type_registry;
+    sr::kernel::register_builtin_types(type_registry);
     sr::kernel::register_sample_kernels(get_runtime().registry());
     sr::kernel::register_rpc_kernels(get_runtime().registry());
 

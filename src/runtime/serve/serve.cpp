@@ -89,9 +89,10 @@ auto parse_graph_selection(std::optional<std::string_view> name_value,
 }
 
 auto register_serve_types() -> void {
-  sr::kernel::register_rpc_types();
+  static sr::engine::TypeRegistry type_registry;
+  sr::kernel::register_rpc_types(type_registry);
 #ifdef SR_ENGINE_WITH_ARROW_FLIGHT
-  sr::kernel::register_flight_types();
+  sr::kernel::register_flight_types(type_registry);
 #endif
 }
 

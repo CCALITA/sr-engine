@@ -4,6 +4,7 @@
 #include <cassert>
 #include <chrono>
 #include <concepts>
+#include <cstdint>
 #include <exec/any_sender_of.hpp>
 #include <format>
 #include <memory>
@@ -13,10 +14,13 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 #include "engine/error.hpp"
 #include "engine/trace.hpp"
+#include "engine/type_names.hpp"
+#include "engine/type_system.hpp"
 #include "reflection/entt.hpp"
 #include "reflection/json.hpp"
 
@@ -44,7 +48,7 @@ enum class Cardinality {
 /// Describes a single input/output port type.
 struct PortDesc {
   NameId name_id{};
-  entt::meta_type type;
+  TypeId type_id{};
   bool required = true;
   Cardinality cardinality = Cardinality::Single;
 };
@@ -57,35 +61,339 @@ struct Signature {
 
 /// Type-erased box holding a registered value instance.
 struct ValueBox {
-  entt::meta_type type{};
+  struct InlineBool {
+    bool value{};
+  };
+  struct InlineChar {
+    char value{};
+  };
+  struct InlineSignedChar {
+    signed char value{};
+  };
+  struct InlineUnsignedChar {
+    unsigned char value{};
+  };
+  struct InlineShort {
+    short value{};
+  };
+  struct InlineUnsignedShort {
+    unsigned short value{};
+  };
+  struct InlineInt {
+    int value{};
+  };
+  struct InlineUnsignedInt {
+    unsigned int value{};
+  };
+  struct InlineLong {
+    long value{};
+  };
+  struct InlineUnsignedLong {
+    unsigned long value{};
+  };
+  struct InlineLongLong {
+    long long value{};
+  };
+  struct InlineUnsignedLongLong {
+    unsigned long long value{};
+  };
+  struct InlineInt8 {
+    std::int8_t value{};
+  };
+  struct InlineUInt8 {
+    std::uint8_t value{};
+  };
+  struct InlineInt16 {
+    std::int16_t value{};
+  };
+  struct InlineUInt16 {
+    std::uint16_t value{};
+  };
+  struct InlineInt32 {
+    std::int32_t value{};
+  };
+  struct InlineUInt32 {
+    std::uint32_t value{};
+  };
+  struct InlineInt64 {
+    std::int64_t value{};
+  };
+  struct InlineUInt64 {
+    std::uint64_t value{};
+  };
+  struct InlineFloat {
+    float value{};
+  };
+  struct InlineDouble {
+    double value{};
+  };
+  struct InlineLongDouble {
+    long double value{};
+  };
+  struct InlineString {
+    std::string value;
+  };
+  struct InlineTimePoint {
+    std::chrono::steady_clock::time_point value{};
+  };
 
-  std::shared_ptr<void> storage{};
+  using InlineStorage = std::variant<
+      std::monostate, InlineBool, InlineChar, InlineSignedChar,
+      InlineUnsignedChar, InlineShort, InlineUnsignedShort, InlineInt,
+      InlineUnsignedInt, InlineLong, InlineUnsignedLong, InlineLongLong,
+      InlineUnsignedLongLong, InlineInt8, InlineUInt8, InlineInt16, InlineUInt16,
+      InlineInt32, InlineUInt32, InlineInt64, InlineUInt64, InlineFloat,
+      InlineDouble, InlineLongDouble, InlineString, InlineTimePoint,
+      std::shared_ptr<void>>;
 
-  auto has_value() const -> bool { return static_cast<bool>(storage); }
+  TypeId type_id{};
+  InlineStorage storage{};
+
+  auto has_value() const -> bool {
+    if (std::holds_alternative<std::monostate>(storage)) {
+      return false;
+    }
+    if (std::holds_alternative<std::shared_ptr<void>>(storage)) {
+      return static_cast<bool>(std::get<std::shared_ptr<void>>(storage));
+    }
+    return true;
+  }
+
+  template <typename Base> static constexpr bool is_inline_type() {
+    using T = std::remove_cvref_t<Base>;
+    return std::is_same_v<T, bool> || std::is_same_v<T, char> ||
+           std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char> ||
+           std::is_same_v<T, std::int8_t> || std::is_same_v<T, std::uint8_t> ||
+           std::is_same_v<T, short> || std::is_same_v<T, unsigned short> ||
+           std::is_same_v<T, std::int16_t> || std::is_same_v<T, std::uint16_t> ||
+           std::is_same_v<T, int> || std::is_same_v<T, unsigned int> ||
+           std::is_same_v<T, std::int32_t> || std::is_same_v<T, std::uint32_t> ||
+           std::is_same_v<T, long> || std::is_same_v<T, unsigned long> ||
+           std::is_same_v<T, long long> ||
+           std::is_same_v<T, unsigned long long> ||
+           std::is_same_v<T, std::int64_t> || std::is_same_v<T, std::uint64_t> ||
+           std::is_same_v<T, float> || std::is_same_v<T, double> ||
+           std::is_same_v<T, long double> || std::is_same_v<T, std::string> ||
+           std::is_same_v<T, std::chrono::steady_clock::time_point>;
+  }
+
+  template <typename Base>
+  static auto store_inline(Base value) -> InlineStorage {
+    using T = std::remove_cvref_t<Base>;
+    if constexpr (std::is_same_v<T, bool>) {
+      return InlineBool{value};
+    } else if constexpr (std::is_same_v<T, char>) {
+      return InlineChar{value};
+    } else if constexpr (std::is_same_v<T, signed char>) {
+      return InlineSignedChar{value};
+    } else if constexpr (std::is_same_v<T, unsigned char>) {
+      return InlineUnsignedChar{value};
+    } else if constexpr (std::is_same_v<T, std::int8_t>) {
+      return InlineInt8{value};
+    } else if constexpr (std::is_same_v<T, std::uint8_t>) {
+      return InlineUInt8{value};
+    } else if constexpr (std::is_same_v<T, short>) {
+      return InlineShort{value};
+    } else if constexpr (std::is_same_v<T, unsigned short>) {
+      return InlineUnsignedShort{value};
+    } else if constexpr (std::is_same_v<T, std::int16_t>) {
+      return InlineInt16{value};
+    } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+      return InlineUInt16{value};
+    } else if constexpr (std::is_same_v<T, int>) {
+      return InlineInt{value};
+    } else if constexpr (std::is_same_v<T, unsigned int>) {
+      return InlineUnsignedInt{value};
+    } else if constexpr (std::is_same_v<T, std::int32_t>) {
+      return InlineInt32{value};
+    } else if constexpr (std::is_same_v<T, std::uint32_t>) {
+      return InlineUInt32{value};
+    } else if constexpr (std::is_same_v<T, long>) {
+      return InlineLong{value};
+    } else if constexpr (std::is_same_v<T, unsigned long>) {
+      return InlineUnsignedLong{value};
+    } else if constexpr (std::is_same_v<T, long long>) {
+      return InlineLongLong{value};
+    } else if constexpr (std::is_same_v<T, unsigned long long>) {
+      return InlineUnsignedLongLong{value};
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      return InlineInt64{value};
+    } else if constexpr (std::is_same_v<T, std::uint64_t>) {
+      return InlineUInt64{value};
+    } else if constexpr (std::is_same_v<T, float>) {
+      return InlineFloat{value};
+    } else if constexpr (std::is_same_v<T, double>) {
+      return InlineDouble{value};
+    } else if constexpr (std::is_same_v<T, long double>) {
+      return InlineLongDouble{value};
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      return InlineString{std::move(value)};
+    } else if constexpr (std::is_same_v<T, std::chrono::steady_clock::time_point>) {
+      return InlineTimePoint{value};
+    } else {
+      return InlineStorage{std::monostate{}};
+    }
+  }
+
+    template <typename Base>
+  static auto read_inline(InlineStorage &storage) -> Base & {
+    using T = std::remove_cvref_t<Base>;
+    if constexpr (std::is_same_v<T, bool>) {
+      return std::get<InlineBool>(storage).value;
+    } else if constexpr (std::is_same_v<T, char>) {
+      return std::get<InlineChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, signed char>) {
+      return std::get<InlineSignedChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned char>) {
+      return std::get<InlineUnsignedChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, short>) {
+      return std::get<InlineShort>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned short>) {
+      return std::get<InlineUnsignedShort>(storage).value;
+    } else if constexpr (std::is_same_v<T, int>) {
+      return std::get<InlineInt>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned int>) {
+      return std::get<InlineUnsignedInt>(storage).value;
+    } else if constexpr (std::is_same_v<T, long>) {
+      return std::get<InlineLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned long>) {
+      return std::get<InlineUnsignedLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, long long>) {
+      return std::get<InlineLongLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned long long>) {
+      return std::get<InlineUnsignedLongLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int8_t>) {
+      return std::get<InlineInt8>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint8_t>) {
+      return std::get<InlineUInt8>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int16_t>) {
+      return std::get<InlineInt16>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+      return std::get<InlineUInt16>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int32_t>) {
+      return std::get<InlineInt32>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint32_t>) {
+      return std::get<InlineUInt32>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      return std::get<InlineInt64>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint64_t>) {
+      return std::get<InlineUInt64>(storage).value;
+    } else if constexpr (std::is_same_v<T, float>) {
+      return std::get<InlineFloat>(storage).value;
+    } else if constexpr (std::is_same_v<T, double>) {
+      return std::get<InlineDouble>(storage).value;
+    } else if constexpr (std::is_same_v<T, long double>) {
+      return std::get<InlineLongDouble>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      return std::get<InlineString>(storage).value;
+    } else {
+      return std::get<InlineTimePoint>(storage).value;
+    }
+  }
+
+  template <typename Base>
+  static auto read_inline(const InlineStorage &storage) -> const Base & {
+    using T = std::remove_cvref_t<Base>;
+    if constexpr (std::is_same_v<T, bool>) {
+      return std::get<InlineBool>(storage).value;
+    } else if constexpr (std::is_same_v<T, char>) {
+      return std::get<InlineChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, signed char>) {
+      return std::get<InlineSignedChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned char>) {
+      return std::get<InlineUnsignedChar>(storage).value;
+    } else if constexpr (std::is_same_v<T, short>) {
+      return std::get<InlineShort>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned short>) {
+      return std::get<InlineUnsignedShort>(storage).value;
+    } else if constexpr (std::is_same_v<T, int>) {
+      return std::get<InlineInt>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned int>) {
+      return std::get<InlineUnsignedInt>(storage).value;
+    } else if constexpr (std::is_same_v<T, long>) {
+      return std::get<InlineLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned long>) {
+      return std::get<InlineUnsignedLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, long long>) {
+      return std::get<InlineLongLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, unsigned long long>) {
+      return std::get<InlineUnsignedLongLong>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int8_t>) {
+      return std::get<InlineInt8>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint8_t>) {
+      return std::get<InlineUInt8>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int16_t>) {
+      return std::get<InlineInt16>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+      return std::get<InlineUInt16>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int32_t>) {
+      return std::get<InlineInt32>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint32_t>) {
+      return std::get<InlineUInt32>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+      return std::get<InlineInt64>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::uint64_t>) {
+      return std::get<InlineUInt64>(storage).value;
+    } else if constexpr (std::is_same_v<T, float>) {
+      return std::get<InlineFloat>(storage).value;
+    } else if constexpr (std::is_same_v<T, double>) {
+      return std::get<InlineDouble>(storage).value;
+    } else if constexpr (std::is_same_v<T, long double>) {
+      return std::get<InlineLongDouble>(storage).value;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+      return std::get<InlineString>(storage).value;
+    } else {
+      return std::get<InlineTimePoint>(storage).value;
+    }
+  }
 
   template <typename T> auto set(T value) -> void {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before storing");
-    type = meta;
-    storage = std::make_shared<T>(std::move(value));
+    using Base = std::remove_cvref_t<T>;
+    const auto expected = TypeName<Base>::id();
+    assert(expected != TypeId{} && "Type must be registered before storing");
+    type_id = expected;
+    if constexpr (std::is_same_v<Base, Json>) {
+      storage = std::make_shared<Json>(std::move(value));
+    } else if constexpr (is_inline_type<Base>()) {
+      storage = store_inline(std::move(value));
+    } else {
+      storage = std::make_shared<Base>(std::move(value));
+    }
   }
 
   template <typename T> auto get() -> T & {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueBox type mismatch");
-    return *static_cast<T *>(storage.get());
+    using Base = std::remove_cvref_t<T>;
+    const auto expected = TypeName<Base>::id();
+    assert(expected != TypeId{} && "Type must be registered before reading");
+    assert(type_id == expected && "ValueBox type mismatch");
+    if constexpr (std::is_same_v<Base, Json>) {
+      return *static_cast<T *>(std::get<std::shared_ptr<void>>(storage).get());
+    } else if constexpr (is_inline_type<Base>()) {
+      return read_inline<Base>(storage);
+    } else {
+      return *static_cast<T *>(std::get<std::shared_ptr<void>>(storage).get());
+    }
   }
 
   template <typename T> auto get() const -> const T & {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before reading");
-    assert(type == meta && "ValueBox type mismatch");
-    return *static_cast<const T *>(storage.get());
+    using Base = std::remove_cvref_t<T>;
+    const auto expected = TypeName<Base>::id();
+    assert(expected != TypeId{} && "Type must be registered before reading");
+    assert(type_id == expected && "ValueBox type mismatch");
+    if constexpr (std::is_same_v<Base, Json>) {
+      return *static_cast<const T *>(
+          std::get<std::shared_ptr<void>>(storage).get());
+    } else if constexpr (is_inline_type<Base>()) {
+      return read_inline<Base>(storage);
+    } else {
+      return *static_cast<const T *>(
+          std::get<std::shared_ptr<void>>(storage).get());
+    }
   }
 };
 
 class InputValues;
+
 
 /// Writable view over a kernel's output slots.
 class OutputValues {
@@ -167,13 +475,5 @@ struct RequestContext {
   }
 };
 
-/// Register a C++ type for use in signatures and value slots.
-
-template <typename T>
-  requires std::semiregular<T>
-inline auto register_type(const char *name) -> void {
-
-  entt::meta<T>().type(entt::hashed_string{name});
-}
 
 } // namespace sr::engine

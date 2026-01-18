@@ -1,5 +1,6 @@
 #include "kernel/rpc_kernels.hpp"
 #include "engine/error.hpp"
+#include "engine/type_names.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -597,18 +598,18 @@ struct MetricsKernel {
 
 } // namespace
 
-auto register_rpc_types() -> void {
-  sr::engine::register_type<grpc::ByteBuffer>("grpc_byte_buffer");
+auto register_rpc_types(sr::engine::TypeRegistry &registry) -> void {
+  sr::engine::register_type<grpc::ByteBuffer>(registry, "grpc_byte_buffer");
   sr::engine::register_type<std::vector<grpc::ByteBuffer>>(
-      "grpc_byte_buffer_vec");
-  sr::engine::register_type<rpc::RpcMetadata>("rpc_metadata");
-  sr::engine::register_type<rpc::RpcServerCall>("rpc_server_call");
-  sr::engine::register_type<Json>("json");
-  sr::engine::register_type<std::shared_ptr<RpcMetrics>>("rpc_metrics");
+      registry, "grpc_byte_buffer_vec");
+  sr::engine::register_type<rpc::RpcMetadata>(registry, "rpc_metadata");
+  sr::engine::register_type<rpc::RpcServerCall>(registry, "rpc_server_call");
+  sr::engine::register_type<Json>(registry, "json");
+  sr::engine::register_type<std::shared_ptr<RpcMetrics>>(registry, "rpc_metrics");
 }
 
 auto register_rpc_kernels(KernelRegistry &registry) -> void {
-  register_rpc_types();
+  register_rpc_types(*registry.type_registry());
 
   registry.register_kernel(
       "rpc_server_input", [](const rpc::RpcServerCall &call) noexcept {

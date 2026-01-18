@@ -1,5 +1,8 @@
 #include "test_support.hpp"
 
+#include <memory>
+#include <variant>
+
 /// Execute a single test and update the stats counters.
 auto run_test(const char *name, const std::function<bool()> &test,
               TestStats &stats) -> void {
@@ -26,7 +29,20 @@ auto test_type_mismatch() -> bool;
 auto test_cycle_detection() -> bool;
 auto test_duplicate_output_name() -> bool;
 auto test_env_type_mismatch() -> bool;
+auto test_plan_slot_uses_typeid() -> bool;
+auto test_valuebox_inline_storage() -> bool;
 auto test_dynamic_port_names() -> bool;
+auto test_kernel_signature_uses_typeid() -> bool;
+
+namespace {
+
+template <typename T>
+concept has_type_id = requires(T slot) {
+  slot.type_id;
+};
+
+} // namespace
+
 auto test_dynamic_ports_missing_names() -> bool;
 auto test_dataflow_fanout_join() -> bool;
 auto test_dataflow_parallel_runs() -> bool;
@@ -63,8 +79,64 @@ auto test_serve_missing_graph() -> bool;
 auto test_serve_multi_endpoint() -> bool;
 auto test_serve_concurrent_stress() -> bool;
 
+auto test_plan_slot_uses_typeid() -> bool {
+  if constexpr (!has_type_id<sr::engine::SlotSpec>) {
+    return false;
+  }
+  return true;
+}
+
+auto test_valuebox_inline_storage() -> bool {
+  sr::engine::ValueBox box;
+  box.set<int64_t>(42);
+  if (std::holds_alternative<std::shared_ptr<void>>(box.storage)) {
+    return false;
+  }
+  if (box.get<int64_t>() != 42) {
+    return false;
+  }
+  box.set<bool>(true);
+  if (std::holds_alternative<std::shared_ptr<void>>(box.storage)) {
+    return false;
+  }
+  return box.get<bool>();
+}
+
+auto test_kernel_signature_uses_typeid() -> bool {
+  struct Widget {};
+
+  sr::engine::KernelRegistry registry;
+  sr::engine::register_type<Widget>(*registry.type_registry(), "widget");
+  registry.register_kernel("widget_echo",
+                           [](Widget value) noexcept { return value; });
+
+  auto factory = registry.find("widget_echo");
+  if (!factory) {
+    return false;
+  }
+
+  auto spec = (*factory)(sr::engine::Json::object());
+  if (!spec) {
+    return false;
+  }
+
+  if (spec->signature.inputs.size() != 1 ||
+      spec->signature.outputs.size() != 1) {
+    return false;
+  }
+
+  const auto expected = sr::engine::TypeName<Widget>::id();
+  if (expected == sr::engine::TypeId{}) {
+    return false;
+  }
+
+  return spec->signature.inputs[0].type_id == expected &&
+         spec->signature.outputs[0].type_id == expected;
+}
+
 int main() {
-  sr::kernel::register_builtin_types();
+  static sr::engine::TypeRegistry type_registry;
+  sr::kernel::register_builtin_types(type_registry);
 
   TestStats stats;
   run_test("basic_pipeline", test_basic_pipeline, stats);
@@ -83,6 +155,10 @@ int main() {
   run_test("cycle_detection", test_cycle_detection, stats);
   run_test("duplicate_output_name", test_duplicate_output_name, stats);
   run_test("env_type_mismatch", test_env_type_mismatch, stats);
+  run_test("plan_slot_uses_typeid", test_plan_slot_uses_typeid, stats);
+  run_test("valuebox_inline_storage", test_valuebox_inline_storage, stats);
+  run_test("kernel_signature_uses_typeid", test_kernel_signature_uses_typeid,
+           stats);
   run_test("dynamic_port_names", test_dynamic_port_names, stats);
   run_test("dynamic_ports_missing_names", test_dynamic_ports_missing_names,
            stats);

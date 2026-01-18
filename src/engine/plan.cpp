@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "engine/fusion.hpp"
+#include "engine/type_names.hpp"
 
 namespace sr::engine {
 namespace {
@@ -30,10 +31,10 @@ auto make_const_slot(const Json &value, TypeId expected) -> Expected<ValueBox> {
   }
 
   ValueBox slot;
-  const auto int_type = entt::resolve<int64_t>().id();
-  const auto double_type = entt::resolve<double>().id();
-  const auto bool_type = entt::resolve<bool>().id();
-  const auto string_type = entt::resolve<std::string>().id();
+  const auto int_type = TypeName<int64_t>::id();
+  const auto double_type = TypeName<double>::id();
+  const auto bool_type = TypeName<bool>::id();
+  const auto string_type = TypeName<std::string>::id();
 
   if (expected == int_type) {
     if (!(value.is_number_integer() || value.is_number_unsigned())) {

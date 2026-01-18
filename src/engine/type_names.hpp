@@ -16,11 +16,24 @@ struct TypeName {
     }
     storage = value;
   }
+  static auto set_id(TypeId value) -> void {
+    auto &storage = type_id();
+    if (storage != TypeId{} && storage != value) {
+      throw std::runtime_error("type id already registered");
+    }
+    storage = value;
+  }
   static auto get() -> const std::string & { return name(); }
+  static auto id() -> TypeId { return type_id(); }
 
 private:
   static auto name() -> std::string & {
     static std::string storage;
+    return storage;
+  }
+
+  static auto type_id() -> TypeId & {
+    static TypeId storage{};
     return storage;
   }
 };
@@ -29,7 +42,9 @@ private:
 template <typename T>
 auto register_type(TypeRegistry &registry, const char *name) -> TypeId {
   TypeName<T>::set(name);
-  return registry.intern_primitive(name);
+  const auto id = registry.intern_primitive(name);
+  TypeName<T>::set_id(id);
+  return id;
 }
 
 } // namespace sr::engine

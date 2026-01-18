@@ -10,6 +10,7 @@
 
 #include "runtime/serve/grpc.hpp"
 #include "runtime/serve/ipc.hpp"
+#include "engine/type_names.hpp"
 
 namespace sr::engine::serve {
 namespace {
@@ -73,7 +74,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
   for (const auto &req : plan.env_requirements) {
     if (req.key == kRpcCallKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<kernel::rpc::RpcServerCall>().id(),
+              validate_type(req, TypeName<kernel::rpc::RpcServerCall>::id(),
                             req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -83,7 +84,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcMethodKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::string>().id(), req.key);
+              validate_type(req, TypeName<std::string>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -91,8 +92,8 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
       continue;
     }
     if (req.key == kRpcPayloadKey) {
-      if (auto ok = validate_type(req, entt::resolve<grpc::ByteBuffer>().id(),
-                                  req.key);
+      if (auto ok =
+              validate_type(req, TypeName<grpc::ByteBuffer>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -101,7 +102,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcMetadataKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<kernel::rpc::RpcMetadata>().id(),
+              validate_type(req, TypeName<kernel::rpc::RpcMetadata>::id(),
                             req.key);
           !ok) {
         return tl::unexpected(ok.error());
@@ -111,7 +112,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcPeerKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::string>().id(), req.key);
+              validate_type(req, TypeName<std::string>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }
@@ -120,7 +121,7 @@ auto analyze_rpc_env(const ExecPlan &plan) -> Expected<RpcEnvBindings> {
     }
     if (req.key == kRpcDeadlineKey) {
       if (auto ok =
-              validate_type(req, entt::resolve<std::int64_t>().id(), req.key);
+              validate_type(req, TypeName<std::int64_t>::id(), req.key);
           !ok) {
         return tl::unexpected(ok.error());
       }

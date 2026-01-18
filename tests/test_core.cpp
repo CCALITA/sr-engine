@@ -343,18 +343,6 @@ auto test_env_type_mismatch() -> bool {
   return !result;
 }
 
-template <typename T>
-concept has_type_id = requires(T slot) {
-  slot.type_id;
-};
-
-auto test_plan_slot_uses_typeid() -> bool {
-  if constexpr (!has_type_id<sr::engine::SlotSpec>) {
-    return false;
-  }
-  return true;
-}
-
 auto test_dynamic_port_names() -> bool {
   const char *dsl = R"JSON(
   {

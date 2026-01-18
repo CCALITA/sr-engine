@@ -14,6 +14,7 @@
 #include "engine/error.hpp"
 #include "engine/kernel_types.hpp"
 #include "engine/types.hpp"
+#include "engine/type_names.hpp"
 
 namespace sr::engine::detail {
 
@@ -400,14 +401,14 @@ auto append_input(std::vector<PortDesc> &inputs, std::string_view name)
     -> Expected<void> {
   using traits = input_arg_traits<Arg>;
   using port_type = typename traits::port_type;
-  auto meta = entt::resolve<port_type>();
-  if (!meta) {
+  const auto type_id = TypeName<port_type>::id();
+  if (type_id == TypeId{}) {
     return tl::unexpected(
         make_error(std::format("unregistered input type for port: {}", name)));
   }
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type_id = meta.id();
+  port.type_id = type_id;
   port.required = !traits::optional;
   inputs.push_back(std::move(port));
   return {};
@@ -417,14 +418,14 @@ template <typename Arg>
 auto append_output(std::vector<PortDesc> &outputs, std::string_view name)
     -> Expected<void> {
   using port_type = output_port_type_t<Arg>;
-  auto meta = entt::resolve<port_type>();
-  if (!meta) {
+  const auto type_id = TypeName<port_type>::id();
+  if (type_id == TypeId{}) {
     return tl::unexpected(
         make_error(std::format("unregistered output type for port: {}", name)));
   }
   PortDesc port;
   port.name_id = name.empty() ? NameId{} : hash_name(name);
-  port.type_id = meta.id();
+  port.type_id = type_id;
   port.required = true;
   outputs.push_back(std::move(port));
   return {};

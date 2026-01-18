@@ -17,6 +17,7 @@
 
 #include "engine/error.hpp"
 #include "engine/trace.hpp"
+#include "engine/type_names.hpp"
 #include "engine/type_system.hpp"
 #include "reflection/entt.hpp"
 #include "reflection/json.hpp"
@@ -65,23 +66,23 @@ struct ValueBox {
   auto has_value() const -> bool { return static_cast<bool>(storage); }
 
   template <typename T> auto set(T value) -> void {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before storing");
-    type_id = meta.id();
+    const auto expected = TypeName<T>::id();
+    assert(expected != TypeId{} && "Type must be registered before storing");
+    type_id = expected;
     storage = std::make_shared<T>(std::move(value));
   }
 
   template <typename T> auto get() -> T & {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before reading");
-    assert(type_id == meta.id() && "ValueBox type mismatch");
+    const auto expected = TypeName<T>::id();
+    assert(expected != TypeId{} && "Type must be registered before reading");
+    assert(type_id == expected && "ValueBox type mismatch");
     return *static_cast<T *>(storage.get());
   }
 
   template <typename T> auto get() const -> const T & {
-    auto meta = entt::resolve<T>();
-    assert(meta && "Type must be registered before reading");
-    assert(type_id == meta.id() && "ValueBox type mismatch");
+    const auto expected = TypeName<T>::id();
+    assert(expected != TypeId{} && "Type must be registered before reading");
+    assert(type_id == expected && "ValueBox type mismatch");
     return *static_cast<const T *>(storage.get());
   }
 };

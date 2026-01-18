@@ -28,6 +28,16 @@ auto test_duplicate_output_name() -> bool;
 auto test_env_type_mismatch() -> bool;
 auto test_plan_slot_uses_typeid() -> bool;
 auto test_dynamic_port_names() -> bool;
+
+namespace {
+
+template <typename T>
+concept has_type_id = requires(T slot) {
+  slot.type_id;
+};
+
+} // namespace
+
 auto test_dynamic_ports_missing_names() -> bool;
 auto test_dataflow_fanout_join() -> bool;
 auto test_dataflow_parallel_runs() -> bool;
@@ -63,6 +73,13 @@ auto test_serve_unary_echo() -> bool;
 auto test_serve_missing_graph() -> bool;
 auto test_serve_multi_endpoint() -> bool;
 auto test_serve_concurrent_stress() -> bool;
+
+auto test_plan_slot_uses_typeid() -> bool {
+  if constexpr (!has_type_id<sr::engine::SlotSpec>) {
+    return false;
+  }
+  return true;
+}
 
 int main() {
   static sr::engine::TypeRegistry type_registry;

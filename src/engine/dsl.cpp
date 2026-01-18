@@ -1,4 +1,5 @@
 #include "engine/dsl.hpp"
+#include "common/logging/log.hpp"
 
 #include <algorithm>
 #include <format>
@@ -140,6 +141,8 @@ auto get_identifier_array_field(const Json& obj, std::string_view field, std::st
 }  // namespace
 
 auto parse_graph_json(const Json& json) -> Expected<GraphDef> {
+  sr::log::info("Parsing graph JSON");
+
   if (!json.is_object()) {
     return tl::unexpected(make_error("graph json must be an object"));
   }
@@ -311,6 +314,7 @@ auto parse_graph_json(const Json& json) -> Expected<GraphDef> {
     }
   }
 
+  sr::log::info("Parsed graph completed");
   return graph;
 }
 

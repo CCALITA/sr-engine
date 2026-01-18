@@ -1,4 +1,5 @@
 #include "runtime/runtime.hpp"
+#include "common/logging/log.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -67,9 +68,9 @@ public:
     stdexec::sync_wait(scope_.on_empty());
   }
 
-private:
+ private:
   auto log_error(std::string message) -> void {
-    std::cerr << "[GraphDaemon] " << message << std::endl;
+    sr::log::error(message.c_str());
   }
 
   auto scan_once() -> void {
@@ -196,12 +197,19 @@ Runtime::Runtime(RuntimeConfig config)
                       : (std::thread::hardware_concurrency() > 0
                              ? std::thread::hardware_concurrency()
                              : 1)),
-      store_(config.store), executor_(&thread_pool_) {
+       store_(config.store), executor_(&thread_pool_) {
+  sr::log::init();
+  
+  sr::log::info("Initializing sr-engine runtime");
+  
   if (config.graph_root && !config.graph_root->empty()) {
+    sr::log::info("Starting graph daemon watching '{}'", config.graph_root->string());
     daemon_ = std::make_unique<GraphDaemon>(
         *this, *config.graph_root, config.graph_poll_interval,
         config.graph_extension, config.graph_recursive,
         config.graph_allow_replace);
+  } else {
+    sr::log::info("Runtime initialized without graph daemon");
   }
 }
 

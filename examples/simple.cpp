@@ -3,10 +3,17 @@
 #include <format>
 #include <iostream>
 #include <mutex>
+#include <cstdio>
 
+#include <gflags/gflags.h>
+
+#include "common/logging/log.hpp"
 #include "engine/trace.hpp"
 #include "kernel/sample_kernels.hpp"
 #include "runtime/runtime.hpp"
+
+DECLARE_string(log_level);
+DECLARE_string(log_file);
 
 namespace {
 
@@ -37,7 +44,8 @@ struct StdoutTraceSink {
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+  google::ParseCommandLineFlags(&argc, &argv, true);
   sr::kernel::register_builtin_types();
 
   sr::engine::Runtime runtime;

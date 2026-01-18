@@ -475,12 +475,5 @@ struct RequestContext {
   }
 };
 
-/// Register a C++ type for use in signatures and value slots.
-
-template <typename T>
-  requires std::semiregular<T>
-inline auto register_type(const char *name) -> void {
-  entt::meta<T>().type(entt::hashed_string{name});
-}
 
 } // namespace sr::engine
